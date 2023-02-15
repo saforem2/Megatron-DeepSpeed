@@ -14,9 +14,13 @@
 # limitations under the License.
 
 """Pretrain GPT"""
+from __future__ import absolute_import, annotations, division, print_function
 
+from deepspeed.comm import get_global_rank
 import torch
+import time
 import math
+import hydra
 from functools import partial
 from megatron import get_args
 from megatron import print_rank_0
@@ -34,9 +38,55 @@ from deepspeed.runtime.utils import see_memory_usage
 from deepspeed.accelerator.real_accelerator import get_accelerator
 import os
 import subprocess
+import wandb
+from wandb.util import generate_id
 
 from torch import nn
 import torch.nn.functional as F
+
+from megatron import is_rank_0
+from mpi4py import MPI
+
+import logging
+
+log = logging.getLogger(__name__)
+
+# import sys
+from torch import distributed as ptdist
+# WORLD_SIZE = ptdist.get_world_size()
+
+from dist import setup_torch
+
+def get_rank() -> int:
+    # return int(MPI.COMM_WORLD.Get_rank())
+    return ptdist.get_rank()
+
+setup_torch(
+    backend='deepspeed',
+    port='2345',
+)
+
+
+log.info(f'Hello from {get_rank()} / {ptdist.get_world_size()}')
+
+# if is_rank_0():
+
+wbrun = None
+if get_rank() == 0:
+    tensorboard_dir = os.environ.get('TENSORBOARD_DIR', None)
+    # if tensorboard_dir is not None:
+    #     print_rank_0(f'Patching tensorboard from {tensorboard_dir}')
+    #     wandb.tensorboard.patch(root_logdir=tensorboard_dir)
+    # os.environ['WANDB_RUN_GROUP'] = f'experiment-{generate_id()}'
+    wbrun = wandb.init(
+        project='Megatron-LM',
+        sync_tensorboard=True,
+        dir=tensorboard_dir,
+        # dir=os.getcwd(),
+        # sync_tensorboard=True,
+        # group=f'experiment-{generate_id()}'
+    )
+
 
 def model_provider(pre_process=True, post_process=True):
     """Build the model."""
@@ -45,6 +95,9 @@ def model_provider(pre_process=True, post_process=True):
     see_memory_usage(f"Before Building Model", force=True)
 
     args = get_args()
+    # if get_rank() == 0 and wbrun is wandb.run:
+    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+        wbrun.config.update(vars(args))
     with deepspeed.zero.Init(data_parallel_group=mpu.get_data_parallel_group(),
                              remote_device=None if args.remote_device == 'none' else args.remote_device,
                              config_dict_or_path=args.deepspeed_config,
@@ -83,6 +136,10 @@ def model_provider(pre_process=True, post_process=True):
                 pre_process=pre_process,
                 post_process=post_process
             )
+    # if get_rank() == 0 and wbrun is wandb.run:
+    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+        wbrun.watch(model)
+
     see_memory_usage(f"After Building Model", force=True)
     return model
 
@@ -234,10 +291,14 @@ def forward_step(data_iterator, model):
     timers = get_timers()
 
     # Get the batch.
+    t0 = time.time()
     timers('batch-generator').start()
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
     timers('batch-generator').stop()
+    # if get_rank() == 0 and wbrun is wandb.run:
+    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+        wbrun.log({'timers/batch-generator': time.time() - t0})
 
     if args.data_efficiency_curriculum_learning:
         args.curriculum_seqlen = tokens.size()[1]
@@ -271,6 +332,9 @@ def forward_step(data_iterator, model):
             mos_loss = calculate_mos_loss(args, stu_output,
                 args.teacher_model[0], tokens, position_ids, attention_mask)
     
+    # if get_rank() == 0 and wbrun is wandb.run:
+    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+        wbrun.log({'timers/forward_step': time.time() - t0})
     # Output_tensor stores the standard loss, loos_func calculates the total loss.
     return output_tensor, partial(loss_func, loss_mask, moe_loss, mos_loss)
 
@@ -301,7 +365,8 @@ def command_exists(cmd):
 
 def git_ds_info():
     from deepspeed.env_report import main as ds_report
-    ds_report()
+    if get_rank() == 0:
+        ds_report()
 
     # Write out version/git info
     git_hash_cmd = "git rev-parse --short HEAD"
@@ -318,11 +383,29 @@ def git_ds_info():
     else:
         git_hash = "unknown"
         git_branch = "unknown"
-    print(f'**** Git info for Megatron: git_hash={git_hash} git_branch={git_branch} ****')
+    print_rank_0(f'**** Git info for Megatron: git_hash={git_hash} git_branch={git_branch} ****')
+
+
+# import hydra
+
+# @hydra.main(version_base=None, config_path='./conf', config_name='config')
+def main():
+    git_ds_info()
+    t0 = time.time()
+    pretrain(
+        train_valid_test_datasets_provider,
+        model_provider,
+        forward_step,
+        args_defaults={'tokenizer_type': 'GPT2BPETokenizer'},
+        data_post_process=data_post_process,
+        wbrun=wbrun
+    )
+    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+        wbrun.log({'pretrain_time': time.time() - t0})
+        wbrun.finish()
 
 
 if __name__ == "__main__":
-    git_ds_info()
-    pretrain(train_valid_test_datasets_provider, model_provider, forward_step,
-             args_defaults={'tokenizer_type': 'GPT2BPETokenizer'},
-             data_post_process=data_post_process)
+    import wandb
+    wandb.require(experiment='service')
+    main()

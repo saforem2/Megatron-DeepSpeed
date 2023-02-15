@@ -20,12 +20,15 @@ import math
 import sys
 import time
 import json
+from typing import Optional
 # The earliest we can measure the start time.
 _TRAIN_START_TIME = time.time()
 
+import wandb
 import torch
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
+from typing import Any
 from megatron import get_args
 from megatron import get_timers
 from megatron import get_tensorboard_writer
@@ -72,7 +75,8 @@ def pretrain(train_valid_test_dataset_provider,
              forward_step_func,
              extra_args_provider=None,
              args_defaults={},
-             data_post_process=None):
+             data_post_process=None,
+             wbrun: Optional[Any] = None):
     """Main training program.
 
     This function will run the followings in the order provided:
@@ -186,7 +190,7 @@ def pretrain(train_valid_test_dataset_provider,
     if args.do_train and args.train_iters > 0:
         iteration = train(forward_step_func,
                           model, optimizer, lr_scheduler,
-                          train_data_iterator, valid_data_iterator)
+                          train_data_iterator, valid_data_iterator, wbrun=wbrun)
     print_datetime('after training is done')
 
     if args.do_valid:
@@ -688,7 +692,7 @@ def train_step(forward_step_func, data_iterator,
 def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
                  grad_norm, params_norm, num_zeros_in_grad,
-                 model=None, optimizer=None):
+                 model=None, optimizer=None, wbrun: Optional[Any] = None):
     """Log training information such as losses, timing, ...."""
     args = get_args()
     timers = get_timers()
@@ -757,6 +761,24 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
     # Tensorboard values.
     if writer and (iteration % args.tensorboard_log_interval == 0) and \
        is_last_rank():
+        tdata = {
+            'step': iteration,
+            'consumed_train_samples': args.consumed_train_samples,
+            'consumed_train_tokens': args.consumed_train_tokens,
+            'learning_rate': learning_rate,
+            'batch_size': batch_size,
+            'loss_scale': loss_scale,
+            'grad_norm': grad_norm,
+        }
+        for key in loss_dict:
+            tdata[f'lm-loss/{key}'] = loss_dict[key]
+
+        tdata = {f'train/{k}': v for k, v in tdata.items()} 
+        if wbrun is not None:
+            wbrun.log(tdata)
+        # else:
+        #     wandb.log(tdata)
+
         writer.add_scalar('steps-vs-samples/y=steps,x=samples', iteration, args.consumed_train_samples)
         writer.add_scalar('steps-vs-samples/y=samples,x=steps', args.consumed_train_samples, iteration)
         writer.add_scalar('steps-vs-tokens/y=steps,x=tokens', iteration, args.consumed_train_tokens)
@@ -825,6 +847,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         if args.log_timers_to_tensorboard:
             timers.write(timers_to_log, writer, iteration,
                          normalizer=total_iterations)
+            timers.track(timers_to_log, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
 
     if iteration % args.tensorboard_log_interval == 0:
         # This logging write various optimizer states to tensorboard. This
@@ -968,6 +991,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             report_memory('(after {} iterations)'.format(iteration))
             report_memory_flag = False
         timers.log(timers_to_log, normalizer=args.log_interval)
+        timers.track(timers_to_log, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
 
 
     return report_memory_flag
@@ -987,7 +1011,7 @@ def save_checkpoint_and_time(iteration, model, optimizer, lr_scheduler):
 
 
 def train(forward_step_func, model, optimizer, lr_scheduler,
-          train_data_iterator, valid_data_iterator):
+          train_data_iterator, valid_data_iterator, wbrun: Optional[Any] = None):
     """Train the model function."""
     args = get_args()
     timers = get_timers()
@@ -1077,7 +1101,7 @@ def train(forward_step_func, model, optimizer, lr_scheduler,
                                           iteration, loss_scale,
                                           report_memory_flag, skipped_iter,
                                           grad_norm, params_norm, num_zeros_in_grad,
-                                          model, optimizer)
+                                          model, optimizer, wbrun=wbrun)
 
         # Autoresume
         if args.adlr_autoresume and \
@@ -1204,7 +1228,7 @@ def evaluate(forward_step_func, data_iterator, model, verbose=False):
 
 def evaluate_and_print_results(prefix, forward_step_func,
                                data_iterator, model,
-                               iteration, verbose=False, test=False):
+                               iteration, verbose=False, test=False, wbrun: Optional[Any] = None):
     """Helper function to evaluate and dump results on screen."""
     args = get_args()
     writer = get_tensorboard_writer()

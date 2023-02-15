@@ -21,6 +21,9 @@ import time
 
 import torch
 
+
+from typing import Sequence, Optional, Any
+
 from megatron.tokenizer import build_tokenizer
 from .arguments import parse_args
 from .microbatches import build_num_microbatches_calculator
@@ -62,6 +65,7 @@ def get_tensorboard_writer():
     """Return tensorboard writer. It can be None so no need
     to check if it is initialized."""
     return _GLOBAL_TENSORBOARD_WRITER
+
 
 
 def get_adlr_autoresume():
@@ -144,6 +148,11 @@ def _set_tensorboard_writer(args):
                   'available (are you using PyTorch 1.1.0 or later?), '
                   'no TensorBoard logs will be written.', flush=True)
 
+# def _set_wandb_writer(args):
+#     global _GLOBAL_WANDB_WRITER
+#     _ensure_var_is_not_initialized(_GLOBAL_WANDB_WRITER, 'WANDB_WRITER')
+#     if hasattr(args, '')
+
 
 def _set_adlr_autoresume(args):
     """Initialize ADLR autoresume."""
@@ -225,6 +234,8 @@ class _Timer:
         return elapsed_
 
 
+import wandb
+
 class Timers:
     """Group of timers."""
 
@@ -245,6 +256,25 @@ class Timers:
         for name in names:
             value = self.timers[name].elapsed(reset=reset) / normalizer
             writer.add_scalar(name + '-time', value, iteration)
+
+    def track(
+            self,
+            names: Sequence[str],
+            iteration: int,
+            normalizer: float = 1.0,
+            reset=False,
+            wbrun: Optional[Any] = None
+    ):
+        assert normalizer > 0.0
+        data = {
+            'timers/iter': iteration,
+        }
+        for name in names:
+            value = self.timers[name].elapsed(reset=reset) / normalizer
+            data[f'timers/{name}'] = value
+
+        if wbrun is not None and wbrun is wandb.run:
+            wbrun.log(data)
 
     def log(self, names, normalizer=1.0, reset=True):
         """Log a group of timers."""
