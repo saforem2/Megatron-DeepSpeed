@@ -21,8 +21,6 @@ source ./venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
 export WANDB_CACHE_DIR=".cache/wandb"
 export CFLAGS="-I${CONDA_PREFIX}/include/"
 export LDFLAGS="-L${CONDA_PREFIX}/lib/"
-# -x PYTHONSTARTUP \
-
 
 TP=8
 PP=16
@@ -33,13 +31,15 @@ MICRO_BATCH=4
 ZERO_STAGE=1
 RUN_STR=ds_z${ZERO_STAGE}_nl${NLAYERS}_hs${HIDDEN}_gb${GLOBAL_BATCH}_mb${MICRO_BATCH}
 OUTPUT_DIR="./outputs/${RUN_STR}"
-mkdir -p $OUTPUT_DIR
+mkdir -p $OUTPUT_DIR/tensorboard/wandb
 
-CHECKPOINT_DIR="./checkpoints/$RUN_STR"
+# CHECKPOINT_DIR="./checkpoints/$RUN_STR"
 TENSORBOARD_DIR="./outputs/${RUN_STR}/tensorboard"
 export TENSORBOARD_DIR=$TENSORBOARD_DIR
 
 DATA_PATH="./dataset/BookCorpusDataset_text_document"
+VOCAB_FILE="./dataset/gpt2-vocab.json"
+MERGE_FILE="./dataset/gpt2-merges.txt"
 
 DS_CONFIG=./ds_config-gpt.json
 cat <<EOT > $DS_CONFIG
@@ -102,11 +102,11 @@ gpt_args="\
   --global-batch-size 16 \
   --seq-length 1024 \
   --max-position-embeddings 1024 \
-  --train-iters 100 \
+  --train-iters 200 \
   --lr-decay-iters 320000 \
   --data-path $DATA_PATH \
-  --vocab-file gpt2-vocab.json \
-  --merge-file gpt2-merges.txt \
+  --vocab-file $VOCAB_FILE \
+  --merge-file $MERGE_FILE \
   --data-impl mmap \
   --split 949,50,1 \
   --distributed-backend nccl \
@@ -118,10 +118,10 @@ gpt_args="\
   --lr-warmup-fraction .01 \
   --checkpoint-activations \
   --log-interval 1 \
-  --save-interval 100 \
+  --save-interval 1000 \
   --eval-interval 50 \
   --eval-iters 100 \
-  --tensorboard-dir . \
+  --tensorboard-dir ${TENSORBOARD_DIR} \
   --log-timers-to-tensorboard \
   --tensorboard-log-interval 5 \
   --fp16"
@@ -142,37 +142,9 @@ MPI_FLAGS="--verbose \
 
 # EXEC="$(which deepspeed) ./pretrain_gpt.py ${gpt_args} --deepspeed_mpi $@"
 # deepspeed ./pretrain_gpt.py ${gpt_args} --deepspeed_mpi $@
-${MPI_COMMAND} \
-  ${MPI_FLAGS} \
-  $(which python3) \
+# ${MPI_COMMAND} \
+#   ${MPI_FLAGS} \
+$(which python3) \
   ./pretrain_gpt.py \
   ${gpt_args} \
-  ${ds_args} \
-  --exit-interval 5000 | tee ${OUTPUT_DIR}/output.log
-
-# deepspeed \
-#   ./pretrain_gpt.py \
-#   ${gpt_args} \
-#   ${ds_args} \
-#   --exit-interval 5000 | tee ${OUTPUT_DIR}/output.log
-
-# ${MPI_COMMAND} ${MPI_FLAGS} $(which python3) ./pretrain_gpt.py ${gpt_args}
-# python3 ./pretrain_gpt.py ${gpt_args} $@
-
-# GPUS_PER_NODE=$(nvidia-smi -L | wc -l)
-# # Change for multinode config
-# MASTER_ADDR=localhost
-# MASTER_PORT=6000
-# NNODES=$(wc -l ${COBALT_NODEFILE})
-# NODE_RANK=0
-# WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-
-# DISTRIBUTED_ARGS="\
-#   --nproc_per_node $GPUS_PER_NODE \
-#   --nnodes $NNODES \
-#   --node_rank $NODE_RANK \
-#   --master_addr $MASTER_ADDR \
-#   --master_port $MASTER_PORT"
-
-# python3 -m torch.distributed.launch $DISTRIBUTED_ARGS \
-#   ./pretrain_gpt.py ${gpt_args} $@
+  ${ds_args}

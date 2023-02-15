@@ -68,8 +68,9 @@ export TENSORBOARD_DIR=$TENSORBOARD_DIR
 mkdir -p $CHECKPOINT_DIR
 mkdir -p $TENSORBOARD_DIR
 
-DATA_PATH="./dataset/"
 DATA_PATH="./dataset/BookCorpusDataset_text_document"
+VOCAB_FILE="./dataset/gpt2-vocab.json"
+MERGE_FILE="./dataset/gpt2-merges.txt"
 
 DS_CONFIG=./ds_config-gpt.json
 cat <<EOT > $DS_CONFIG
@@ -96,16 +97,15 @@ cat <<EOT > $DS_CONFIG
     "top_modules": 1,
     "detailed": true,
     "output_file": null
-  }
+  },
 
+  "wandb": {
+    "enabled": true,
+    "project": "megatron-LM"
+  }
 }
 EOT
 
-# "wandb": {
-#   "enabled": true,
-#   "project": "megatron-LM",
-#   "group": "polaris"
-# }
 export NCCL_DEBUG=warn
 
 ds_args=""
@@ -136,8 +136,8 @@ gpt_args="\
   --train-iters 200 \
   --lr-decay-iters 320000 \
   --data-path $DATA_PATH \
-  --vocab-file gpt2-vocab.json \
-  --merge-file gpt2-merges.txt \
+  --vocab-file $VOCAB_FILE \
+  --merge-file $MERGE_FILE \
   --data-impl mmap \
   --split 949,50,1 \
   --distributed-backend nccl \
@@ -148,7 +148,7 @@ gpt_args="\
   --clip-grad 1.0 \
   --lr-warmup-fraction .01 \
   --checkpoint-activations \
-  --log-interval 5 \
+  --log-interval 1 \
   --save-interval 1000 \
   --eval-interval 50 \
   --eval-iters 100 \
