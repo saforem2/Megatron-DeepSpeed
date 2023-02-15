@@ -57,19 +57,18 @@ from torch import distributed as ptdist
 
 from dist import setup_torch
 
+setup_torch(
+    backend='deepspeed',
+    port='5432',
+)
+log.info(f'Hello from {ptdist.get_rank()} / {ptdist.get_world_size()}')
+
+# if is_rank_0():
+
 def get_rank() -> int:
     # return int(MPI.COMM_WORLD.Get_rank())
     return ptdist.get_rank()
 
-setup_torch(
-    backend='deepspeed',
-    port='2345',
-)
-
-
-log.info(f'Hello from {get_rank()} / {ptdist.get_world_size()}')
-
-# if is_rank_0():
 
 wbrun = None
 if get_rank() == 0:
@@ -86,6 +85,9 @@ if get_rank() == 0:
         # sync_tensorboard=True,
         # group=f'experiment-{generate_id()}'
     )
+    if wbrun is not None and wbrun is wandb.run:
+        wbrun.config.update({'world_size': ptdist.get_world_size()})
+
 
 
 def model_provider(pre_process=True, post_process=True):
@@ -138,7 +140,11 @@ def model_provider(pre_process=True, post_process=True):
             )
     # if get_rank() == 0 and wbrun is wandb.run:
     if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
-        wbrun.watch(model)
+        wbrun.watch(
+            model,
+            log='all',
+            log_graph=True,
+        )
 
     see_memory_usage(f"After Building Model", force=True)
     return model
@@ -408,4 +414,5 @@ def main():
 if __name__ == "__main__":
     import wandb
     wandb.require(experiment='service')
+
     main()

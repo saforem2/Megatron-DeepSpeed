@@ -247,15 +247,31 @@ class Timers:
             self.timers[name] = _Timer(name)
         return self.timers[name]
 
-    def write(self, names, writer, iteration, normalizer=1.0, reset=False):
+    def write(
+            self,
+            names,
+            writer,
+            iteration,
+            normalizer=1.0,
+            reset=False,
+            wbrun: Optional[Any] = None,
+    ):
         """Write timers to a tensorboard writer"""
         # currently when using add_scalars,
         # torch.utils.add_scalars makes each timer its own run, which
         # polutes the runs list, so we just add each as a scalar
+        data = {}
         assert normalizer > 0.0
         for name in names:
             value = self.timers[name].elapsed(reset=reset) / normalizer
             writer.add_scalar(name + '-time', value, iteration)
+            data[f'timers/{name}'] = value
+
+        if wbrun is not None and wbrun is wandb.run:
+            # wbrun.log({'timers': data})
+            wbrun.log(data)
+
+        return data
 
     def track(
             self,
@@ -272,21 +288,31 @@ class Timers:
         for name in names:
             value = self.timers[name].elapsed(reset=reset) / normalizer
             data[f'timers/{name}'] = value
+            # if wbrun is not None and wbrun is wandb.run:
+            #     wandb.log({'timers/name': value})
+            # data[f'timers/{name}'] = value
 
         if wbrun is not None and wbrun is wandb.run:
+            # wbrun.log({'timers': data})
             wbrun.log(data)
 
-    def log(self, names, normalizer=1.0, reset=True):
+    def log(self, names, normalizer=1.0, reset=True, wbrun: Optional[Any] = None):
         """Log a group of timers."""
         assert normalizer > 0.0
+        data = {}
         string = 'time (ms)'
         for name in names:
             elapsed_time = self.timers[name].elapsed(
-                reset=reset) * 1000.0 / normalizer
-            string += ' | {}: {:.2f}'.format(name, elapsed_time)
+                reset=reset) / normalizer
+            # multiply by 1000 to convert to milliseconds
+            string += ' | {}: {:.2f}'.format(name, elapsed_time * 1000)
+            data[f'timers/{name}'] = elapsed_time
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == (
                     torch.distributed.get_world_size() - 1):
                 print(string, flush=True)
         else:
             print(string, flush=True)
+
+        if wbrun is not None and wbrun is wandb.run:
+            wbrun.log(data)

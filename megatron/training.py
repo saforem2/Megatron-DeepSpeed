@@ -183,7 +183,13 @@ def pretrain(train_valid_test_dataset_provider,
 
     # Print setup timing.
     print_rank_0('done with setup ...')
-    timers.log(['model-and-optimizer-setup', 'train/valid/test-data-iterators-setup'])
+    timers.log(
+        [
+            'model-and-optimizer-setup',
+            'train/valid/test-data-iterators-setup'
+        ],
+        wbrun=wbrun
+    )
     print_rank_0('training ...')
 
     iteration = 0
@@ -546,7 +552,7 @@ def setup_model_and_optimizer(model_provider_func, teacher=False,
             args.iteration = load_checkpoint(model, optimizer, lr_scheduler)
             torch.distributed.barrier()
             timers('load-checkpoint').stop()
-            timers.log(['load-checkpoint'])
+            timers.log(['load-checkpoint'], wbrun=wbrun)
         else:
             args.iteration = 0
     else:
@@ -731,8 +737,32 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
     timers_to_log = []
 
     def add_to_logging(name):
-        if name in timers.timers:
+        if timers is not None and name in timers.timers:
             timers_to_log.append(name)
+
+    # names = [
+    #     'forward-compute',
+    #     'forward-recv',
+    #     'forward-send',
+    #     'forward-backward-send-forward-backward-recv',
+    #     'backward-compute',
+    #     'backward-recv',
+    #     'backward-send',
+    #     'backward-send-forward-recv',
+    #     'backward-send-backward-recv',
+    #     'backward-params-all-reduce',
+    #     'backward-embedding-all-reduce',
+    #     'optimizer-copy-to-main-grad',
+    #     'optimizer-unscale-and-check-inf',
+    #     'optimizer-clip-main-grad',
+    #     'optimizer-copy-main-to-model-params',
+    #     'optimizer',
+    #     'batch-generator',
+    #     'save-checkpoint',
+    # ]
+    # for name in names:
+    #     add_to_logging(name)
+
     add_to_logging('forward-compute')
     add_to_logging('forward-recv')
     add_to_logging('forward-send')
@@ -751,7 +781,6 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
     add_to_logging('optimizer')
     add_to_logging('batch-generator')
     add_to_logging('save-checkpoint')
-
     # Calculate batch size.
     batch_size = args.micro_batch_size * args.data_parallel_size * \
         get_num_microbatches()
@@ -844,10 +873,19 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                               args.consumed_train_samples)
             writer.add_scalar('seqlen/random_ltd_reserved_length vs tokens', args.random_ltd_reserved_length,
                               args.consumed_train_tokens)
-        if args.log_timers_to_tensorboard:
-            timers.write(timers_to_log, writer, iteration,
-                         normalizer=total_iterations)
-            timers.track(timers_to_log, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
+        # if args.log_timers_to_tensorboard:
+        if timers is not None and args.log_timers_to_tensorboard:
+            print_rank_0('Caught timers, writing...')
+            _ = timers.write(timers_to_log, writer, iteration,
+                             normalizer=total_iterations, wbrun=wbrun)
+            timers.log(
+                timers_to_log,
+                normalizer=total_iterations,
+                wbrun=wbrun
+            )
+            # if wbrun is not None and wbrun is wandb.run:
+            #     wbrun.log(data)
+            # timers.track(names, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
 
     if iteration % args.tensorboard_log_interval == 0:
         # This logging write various optimizer states to tensorboard. This
@@ -937,6 +975,15 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         tokens_per_sec = samples_per_sec * seq_len
         tokens_per_sec_per_replica = tokens_per_sec / args.data_parallel_size
 
+        if wbrun is not None and wbrun is wandb.run:
+            tput = {
+                'throughput/iteration-time': elapsed_time_per_iteration,  # 1000 ms / s
+                'throughput/samples_per_sec': samples_per_sec,
+                'throughput/tflops': tflops,
+                'throughput/approx_params_in_billions': approx_parameters_in_billions,
+            }
+            wbrun.log(tput)
+
         # only the last rank process has a non-None _GLOBAL_TENSORBOARD_WRITER
         if writer and is_last_rank():
             if args.log_timers_to_tensorboard:
@@ -990,8 +1037,12 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             # Report memory after optimizer state has been initialized.
             report_memory('(after {} iterations)'.format(iteration))
             report_memory_flag = False
-        timers.log(timers_to_log, normalizer=args.log_interval)
-        timers.track(timers_to_log, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
+        timers.log(
+            timers_to_log,
+            normalizer=args.log_interval,
+            wbrun=wbrun,
+        )
+        # timers.track(timers_to_log, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
 
 
     return report_memory_flag
@@ -1007,7 +1058,7 @@ def save_checkpoint_and_time(iteration, model, optimizer, lr_scheduler):
     torch.distributed.barrier()
     timers('save-checkpoint').stop()
     checkpoint_throughput_calculator(model, timers('save-checkpoint').elapsed(reset=False))
-    timers.log(['save-checkpoint'])
+    timers.log(['save-checkpoint'], wbrun=wbrun)
 
 
 def train(forward_step_func, model, optimizer, lr_scheduler,
