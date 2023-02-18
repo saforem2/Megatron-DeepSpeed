@@ -17,6 +17,7 @@
 from __future__ import absolute_import, annotations, division, print_function
 
 from deepspeed.comm import get_global_rank
+import socket
 import torch
 import time
 import math
@@ -73,9 +74,9 @@ def get_rank() -> int:
 wbrun = None
 if get_rank() == 0:
     tensorboard_dir = os.environ.get('TENSORBOARD_DIR', None)
-    # if tensorboard_dir is not None:
-    #     print_rank_0(f'Patching tensorboard from {tensorboard_dir}')
-    #     wandb.tensorboard.patch(root_logdir=tensorboard_dir)
+    if tensorboard_dir is not None:
+        log.info(f'Patching tensorboard from {tensorboard_dir}')
+        wandb.tensorboard.patch(root_logdir=tensorboard_dir)
     # os.environ['WANDB_RUN_GROUP'] = f'experiment-{generate_id()}'
     wbrun = wandb.init(
         project='Megatron-LM',
@@ -87,6 +88,19 @@ if get_rank() == 0:
     )
     if wbrun is not None and wbrun is wandb.run:
         wbrun.config.update({'world_size': ptdist.get_world_size()})
+        env = dict(os.environ)
+        _ = env.pop('LS_COLORS', None)
+        wbrun.config.update({'env': env})
+        hostname = socket.gethostbyaddr(socket.gethostname())[0]
+        if hostname.startswith('theta'):
+            wbrun.config.update({'machine': 'ThetaGPU'})
+        elif hostname.startswith('x3'):
+            wbrun.config.update({'machine': 'Polaris'})
+        elif hostname.startswith('x1'):
+            wbrun.config.update({'machine': 'Sunspot'})
+        else:
+            wbrun.config.update({'machine': hostname})
+
 
 
 

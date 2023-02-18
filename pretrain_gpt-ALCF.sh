@@ -246,7 +246,42 @@ setup() {
   export GPUS_PER_NODE=$NGPU_PER_RANK
   export WORLD_SIZE=$NGPUS
 }
-  #
+
+singleGPU() {
+  echo "\
+    Running on 1 ranks \
+    with 1 GPUs each \
+    for a total of 1 GPUs"
+  EXEC="\
+    $(which python3) \
+    ./pretrain_gpt.py \
+    ${gpt_args} \
+    ${ds_args}"
+  echo "EXEC: $EXEC" "$@"
+  ${EXEC} "$@"
+}
+
+fullNode() {
+  NRANKS=1
+  NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
+  NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
+  echo "\
+    Running on $NRANKS ranks \
+    with $NGPU_PER_RANK GPUs each \
+    for a total of $NGPUS GPUs"
+  EXEC="\
+    ${MPI_COMMAND} \
+    ${MPI_DEFAULTS} \
+    -n ${NGPUS}
+    $(which python3) \
+    ./pretrain_gpt.py \
+    ${gpt_args} \
+    ${ds_args}"
+
+  echo "EXEC: $EXEC" "$@"
+  ${EXEC} "$@"
+}
+
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Use all available GPUs on all available nodes ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -270,4 +305,5 @@ elasticDistributed() {
 }
 
 setup
+# singleGPU "$@"
 elasticDistributed "$@"
