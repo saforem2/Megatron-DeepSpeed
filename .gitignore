@@ -1,5 +1,14 @@
 __pycache__
 
+.cache/
+cache/
+hostfile
+old/
+outputs/
+venvs/
+wandb/
+
+
 dataset/*
 
 # Distribution / packaging
