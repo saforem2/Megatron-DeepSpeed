@@ -8,44 +8,6 @@ echo "Job running in: ${DIR}"
 
 export NCCL_DEBUG=warn
 export WANDB_CACHE_DIR="./cache/wandb"
-# export WANDB_CACHE_DIR="../../.cache/wandb"
-
-# # Change for multinode config
-# HOSTFILE=$PBS_NODEFILE
-# NRANKS=$(wc -l < ${PBS_NODEFILE})
-# NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
-# NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
-# echo "HOSTFILE: ${HOSTFILE}"
-# echo "NRANKS: ${NRANKS}"
-# echo "NGPU_PER_RANK: ${NGPU_PER_RANK}"
-# echo "NGPUS: NRANKS * NGPU_PER_RANK = ${NGPUS}"
-
-load_conda20220719() {
-  module load conda/2022-07-19
-  conda activate base
-  conda activate \
-    /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2022-07-19
-  source ./venvs/polaris/2022-07-19-deepspeed/bin/activate
-}
-
-load_conda20220908hvdnccl() {
-  module load conda/2022-09-08-hvd-nccl
-  conda activate base
-  conda activate \
-    /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2022-09-08-hvd-nccl
-  source ./venvs/polaris/2022-09-08/bin/activate
-}
-
-# setupPolaris () {
-#   # load_conda20220719
-#   MPI_COMMAND=$(which mpiexec)
-#   MPI_FLAGS="\
-#     -n ${NGPUS} \
-#     --ppn ${NGPU_PER_RANK} \
-#     --verbose \
-#     --envall \
-#     --hostfile ${PBS_NODEFILE}"
-# }
 
 # ┏━━━━━━━━━━┓
 # ┃ ThetaGPU ┃
@@ -60,8 +22,6 @@ setupThetaGPU() {
     conda activate \
       /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
     source ./venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
-    export CFLAGS="-I${CONDA_PREFIX}/include/"
-    export LDFLAGS="-L${CONDA_PREFIX}/lib/"
     # -------------------------------------------------------------------------
 
     # -- MPI / Comms Setup ----------------------------------
@@ -81,7 +41,6 @@ setupThetaGPU() {
     MPI_ELASTIC="\
       -n ${NGPUS} \
       -npernode ${NGPU_PER_RANK}"
-    # MPIEXEC="${MPI_COMMAND} ${MPI_DEFAULTS} ${MPI_ELASTIC}"
     # -------------------------------------------------------
   else
     echo "Unexpected hostname: $(hostname)"
@@ -95,23 +54,12 @@ setupPolaris()  {
   if [[ $(hostname) == x* ]]; then
     export MACHINE="Polaris"
     HOSTFILE="${PBS_NODEFILE}"
-    # -----------------------------------------------
-    # module load conda/2022-09-08; conda activate base
-    # if [[ -f ./venvs/polaris/2022-09-08/bin/activate ]]; then
-    #   source ./venvs/polaris/2022-09-08/bin/activate
-    # else
-    #   mkdir -p venvs/polaris/2022-09-08
-    #   python3 -m venv venvs/polaris/2022-09-08 --system-site-packages
-    #   source venvs/polaris/2022-09-08/bin/activate
-    # fi
     module load conda/2023-01-10
     conda activate base
     conda activate \
       /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
 
-    export CFLAGS="-I${CONDA_PREFIX}/include/"
-    export LDFLAGS="-L${CONDA_PREFIX}/lib/"
-    export IBV_FORK_SAFE=1
+    # export IBV_FORK_SAFE=1
     # -----------------------------------------------
     NRANKS=$(wc -l < "${HOSTFILE}")
     NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
@@ -125,7 +73,6 @@ setupPolaris()  {
     MPI_ELASTIC="\
       -n ${NGPUS} \
       --ppn ${NGPU_PER_RANK}"
-    # MPIEXEC="${MPI_COMMAND} ${MPI_FLAGS} ${MPI_ELASTIC}"
   else
     echo "Unexpected hostname: $(hostname)"
   fi
@@ -134,7 +81,6 @@ setupPolaris()  {
 
 export CFLAGS="-I${CONDA_PREFIX}/include/"
 export LDFLAGS="-L${CONDA_PREFIX}/lib/"
-# -x PYTHONSTARTUP \
 
 TP=8
 PP=16
