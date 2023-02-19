@@ -89,6 +89,18 @@ def setup_tensorflow(
     return RANK
 
 
+# def init_deepspeed(
+#         dist_backend: Optional[str] = None,
+#         auto_mpi_discovery: bool = True,
+#         **kwargs,
+# ):
+#     import deepspeed
+#     deepspeed.init_distributed(
+#         dist_backend=dist_backend,
+#         auto_mpi_discovery=auto_mpi_discovery,
+#         **kwargs
+#     )
+
 def init_deepspeed():
     import deepspeed
     deepspeed.init_distributed()
@@ -306,7 +318,6 @@ def setup_torch(
         torch.cuda.set_device(local_rank)
 
     log.info(f'Global Rank: {rank} / {size-1}')
-    # log.info(f'[{rank}]: Local rank: {local_rank}')
     return rank
 
 
