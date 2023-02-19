@@ -96,14 +96,18 @@ setupPolaris()  {
     export MACHINE="Polaris"
     HOSTFILE="${PBS_NODEFILE}"
     # -----------------------------------------------
-    module load conda/2022-09-08; conda activate base
-    if [[ -f ./venvs/polaris/2022-09-08/bin/activate ]]; then
-      source ./venvs/polaris/2022-09-08/bin/activate
-    else
-      mkdir -p venvs/polaris/2022-09-08
-      python3 -m venv venvs/polaris/2022-09-08 --system-site-packages
-      source venvs/polaris/2022-09-08/bin/activate
-    fi
+    # module load conda/2022-09-08; conda activate base
+    # if [[ -f ./venvs/polaris/2022-09-08/bin/activate ]]; then
+    #   source ./venvs/polaris/2022-09-08/bin/activate
+    # else
+    #   mkdir -p venvs/polaris/2022-09-08
+    #   python3 -m venv venvs/polaris/2022-09-08 --system-site-packages
+    #   source venvs/polaris/2022-09-08/bin/activate
+    # fi
+    module load conda/2023-01-10
+    conda activate base
+    conda activate \
+      /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
 
     export CFLAGS="-I${CONDA_PREFIX}/include/"
     export LDFLAGS="-L${CONDA_PREFIX}/lib/"
@@ -182,8 +186,16 @@ cat <<EOT > $DS_CONFIG
     "enabled": true,
     "project": "megatron-LM"
   }
+
 }
 EOT
+
+# "csv_monitor": {
+#   "enabled": true,
+#   "output_path": "$OUTPUT_DIR/ds_logs/",
+#   "job_name": "pretrain-gpt",
+#   "group": "polaris"
+# }
 
 ds_args=""
 ds_args=" --deepspeed ${ds_args}"
