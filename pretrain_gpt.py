@@ -45,7 +45,7 @@ from wandb.util import generate_id
 from torch import nn
 import torch.nn.functional as F
 
-from megatron import is_rank_0
+from megatron import is_rank_0, is_last_rank
 from mpi4py import MPI
 
 import logging
@@ -72,7 +72,8 @@ def get_rank() -> int:
 
 
 wbrun = None
-if get_rank() == 0:
+# if get_rank() == 0:
+if is_last_rank():
     tensorboard_dir = os.environ.get('TENSORBOARD_DIR', None)
     if tensorboard_dir is not None:
         log.info(f'Patching tensorboard from {tensorboard_dir}')
@@ -112,8 +113,10 @@ def model_provider(pre_process=True, post_process=True):
 
     args = get_args()
     # if get_rank() == 0 and wbrun is wandb.run:
-    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+    # if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+    if is_last_rank() and wbrun is not None and wbrun is wandb.run:
         wbrun.config.update(vars(args))
+
     with deepspeed.zero.Init(data_parallel_group=mpu.get_data_parallel_group(),
                              remote_device=None if args.remote_device == 'none' else args.remote_device,
                              config_dict_or_path=args.deepspeed_config,
@@ -153,7 +156,8 @@ def model_provider(pre_process=True, post_process=True):
                 post_process=post_process
             )
     # if get_rank() == 0 and wbrun is wandb.run:
-    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+    # if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+    if is_last_rank() and wbrun is not None and wbrun is wandb.run:
         wbrun.watch(
             model,
             log='all',
@@ -317,7 +321,7 @@ def forward_step(data_iterator, model):
         data_iterator)
     timers('batch-generator').stop()
     # if get_rank() == 0 and wbrun is wandb.run:
-    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+    if is_last_rank() and wbrun is not None and wbrun is wandb.run:
         wbrun.log({'timers/batch-generator': time.time() - t0})
 
     if args.data_efficiency_curriculum_learning:
@@ -353,7 +357,7 @@ def forward_step(data_iterator, model):
                 args.teacher_model[0], tokens, position_ids, attention_mask)
     
     # if get_rank() == 0 and wbrun is wandb.run:
-    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+    if is_last_rank() and wbrun is not None and wbrun is wandb.run:
         wbrun.log({'timers/forward_step': time.time() - t0})
     # Output_tensor stores the standard loss, loos_func calculates the total loss.
     return output_tensor, partial(loss_func, loss_mask, moe_loss, mos_loss)
@@ -385,7 +389,7 @@ def command_exists(cmd):
 
 def git_ds_info():
     from deepspeed.env_report import main as ds_report
-    if get_rank() == 0:
+    if is_last_rank():
         ds_report()
 
     # Write out version/git info
@@ -420,7 +424,7 @@ def main():
         data_post_process=data_post_process,
         wbrun=wbrun
     )
-    if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
+    if is_last_rank() and wbrun is not None and wbrun is wandb.run:
         wbrun.log({'pretrain_time': time.time() - t0})
         wbrun.finish()
 
