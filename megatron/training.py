@@ -38,6 +38,7 @@ from megatron import is_last_rank
 from megatron import update_num_microbatches
 from megatron import mpu
 from megatron import print_rank_0
+from megatron import is_rank_0
 from megatron import print_rank_last
 from megatron.checkpointing import load_checkpoint
 from megatron.checkpointing import save_checkpoint
@@ -338,7 +339,6 @@ def get_model(model_provider_func):
     for model_module in model:
         model_module.to(get_accelerator().current_device_name())
  
-
     # Fp16 conversion.
     if args.fp16 or args.bf16:
         model = [Float16Module(model_module, args) for model_module in model]
@@ -789,7 +789,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
 
     # Tensorboard values.
     if writer and (iteration % args.tensorboard_log_interval == 0) and \
-       is_last_rank():
+       is_rank_0():
         tdata = {
             'step': iteration,
             'consumed_train_samples': args.consumed_train_samples,
@@ -931,7 +931,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                     group=mpu.get_pipeline_model_parallel_group())
 
             # print('step {} rank {} after sync opt_stats {}, {}'.format(iteration, torch.distributed.get_rank(), opt_stats_2, opt_stats))
-            if writer and is_last_rank():
+            if writer and is_rank_0():
                 writer.add_scalar('optimizer/variance_l2 vs tokens', opt_stats[0]**0.5, args.consumed_train_tokens)
                 writer.add_scalar('optimizer/variance_sqrt_l2 vs tokens', opt_stats[1]**0.5, args.consumed_train_tokens)
                 writer.add_scalar('optimizer/momentum_l2 vs tokens', opt_stats[2]**0.5, args.consumed_train_tokens)
@@ -985,7 +985,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             wbrun.log(tput)
 
         # only the last rank process has a non-None _GLOBAL_TENSORBOARD_WRITER
-        if writer and is_last_rank():
+        if writer and is_rank_0():
             if args.log_timers_to_tensorboard:
                 writer.add_scalar('iteration-time/iteration-time',
                                   elapsed_time_per_iteration, iteration)
@@ -1290,7 +1290,7 @@ def evaluate_and_print_results(prefix, forward_step_func,
         string += '{} value: {:.6E} | '.format(key, total_loss_dict[key].item())
         ppl = math.exp(min(20, total_loss_dict[key].item()))
         string += '{} PPL: {:.6E} | '.format(key, ppl)
-        if writer and is_last_rank():
+        if writer and is_rank_0():
             data_type = 'test' if test else 'validation'
             writer.add_scalar(f'lm-loss-validation/{key} {data_type}',
                               total_loss_dict[key].item(),
