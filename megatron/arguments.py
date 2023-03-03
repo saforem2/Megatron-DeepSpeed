@@ -446,7 +446,7 @@ def _add_training_args(parser):
                        'training runs.')
     group.add_argument('--random-ltd',
                        action='store_true',
-                       help='enable random layer token drop')    
+                       help='enable random layer token drop')
     group.add_argument('--log-interval', type=int, default=100,
                        help='Report loss and timing interval.')
     group.add_argument('--exit-interval', type=int, default=None,
@@ -659,7 +659,7 @@ def _add_distributed_args(parser):
                        choices=['nccl', 'gloo', 'ccl'],
                        help='Which backend to use for distributed training.')
     group.add_argument('--DDP-impl', default='local',
-                       choices=['local', 'torch'],
+                       choices=['local', 'torch', 'FSDP'],
                        help='which DistributedDataParallel implementation '
                        'to use.')
     group.add_argument('--use-contiguous-buffers-in-ddp', action='store_true',

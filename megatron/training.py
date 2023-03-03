@@ -343,6 +343,26 @@ def get_model(model_provider_func):
     if args.fp16 or args.bf16:
         model = [Float16Module(model_module, args) for model_module in model]
 
+    if args.DDP_impl.upper() == 'FSDP':
+        print_rank_0('Using FullyShardedDataParallel')
+        from torch.distributed.fsdp.fully_sharded_data_parallel import (
+            FullyShardedDataParallel,
+            CPUOffload
+        )
+        from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+
+        i = get_accelerator().current_device()
+        model = [
+            FullyShardedDataParallel(
+                module=model_module,
+                process_group=mpu.get_data_parallel_group(),
+                auto_wrap_policy=size_based_auto_wrap_policy,
+                cpu_offload=CPUOffload(offload_params=True)
+            )
+            for model_module in model
+        ]
+        return model
+
     if args.DDP_impl == 'torch':
         i = get_accelerator().current_device()
         model = [torchDDP(model_module, device_ids=[i], output_device=i,
@@ -791,7 +811,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
     if writer and (iteration % args.tensorboard_log_interval == 0) and \
        is_rank_0():
         tdata = {
-            'step': iteration,
+            'iteration': iteration,
             'consumed_train_samples': args.consumed_train_samples,
             'consumed_train_tokens': args.consumed_train_tokens,
             'learning_rate': learning_rate,
@@ -802,12 +822,36 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         for key in loss_dict:
             tdata[f'lm-loss/{key}'] = loss_dict[key]
 
-        tdata = {f'train/{k}': v for k, v in tdata.items()} 
-        if wbrun is not None:
-            wbrun.log(tdata)
+        tdata = {f'train/{k}': v for k, v in tdata.items()}
+        if wbrun is not None and wbrun is wandb.run:
+            wbrun.log(tdata, commit=False)
+
+        elapsed_time = timers('interval-time').elapsed()
+        elapsed_time_per_iteration = elapsed_time / total_iterations
+        seq_len = args.seq_length
+        if hasattr(args, 'actual_seq_length'):
+            seq_len = args.actual_seq_length
+        hidden_size = args.hidden_size
+        num_layers = args.num_layers
+        vocab_size = args.padded_vocab_size
+
+        samples_per_sec, tflops, approx_parameters_in_billions = throughput_calculator(model, args, elapsed_time, total_iterations)
+
+        # Compute throughput.
+        samples_per_sec_per_replica = samples_per_sec / args.data_parallel_size
+        tokens_per_sec = samples_per_sec * seq_len
+        tokens_per_sec_per_replica = tokens_per_sec / args.data_parallel_size
+
+        if wbrun is not None and wbrun is wandb.run:
+            tput = {
+                'throughput/iteration-time': elapsed_time_per_iteration,  # 1000 ms / s
+                'throughput/samples_per_sec': samples_per_sec,
+                'throughput/tflops': tflops,
+                'throughput/approx_params_in_billions': approx_parameters_in_billions,
+            }
+            wbrun.log(tput)
         # else:
         #     wandb.log(tdata)
-
         writer.add_scalar('steps-vs-samples/y=steps,x=samples', iteration, args.consumed_train_samples)
         writer.add_scalar('steps-vs-samples/y=samples,x=steps', args.consumed_train_samples, iteration)
         writer.add_scalar('steps-vs-tokens/y=steps,x=tokens', iteration, args.consumed_train_tokens)
@@ -944,7 +988,6 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                 writer.add_scalar('optimizer/variance_sqrt_abs_max vs tokens', opt_stats_2[1], args.consumed_train_tokens)
                 writer.add_scalar('optimizer/momentum_abs_max vs tokens', opt_stats_2[2], args.consumed_train_tokens)
                 writer.add_scalar('optimizer/weight_abs_max vs tokens', opt_stats_2[3], args.consumed_train_tokens)
-
                 writer.add_scalar('optimizer/variance_l2', opt_stats[0]**0.5, iteration)
                 writer.add_scalar('optimizer/variance_sqrt_l2', opt_stats[1]**0.5, iteration)
                 writer.add_scalar('optimizer/momentum_l2', opt_stats[2]**0.5, iteration)
@@ -986,6 +1029,12 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
 
         # only the last rank process has a non-None _GLOBAL_TENSORBOARD_WRITER
         if writer and is_rank_0():
+            iter_timers = {
+                'iteration': iteration,
+                'consumed_samples': args.consumed_train_samples,
+                'consumed_tokens': args.consumed_train_tokens,
+                'iteartion-time': elapsed_time_per_iteration,
+            }
             if args.log_timers_to_tensorboard:
                 writer.add_scalar('iteration-time/iteration-time',
                                   elapsed_time_per_iteration, iteration)
@@ -1037,11 +1086,11 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             # Report memory after optimizer state has been initialized.
             report_memory('(after {} iterations)'.format(iteration))
             report_memory_flag = False
-        timers.log(
-            timers_to_log,
-            normalizer=args.log_interval,
-            wbrun=wbrun,
-        )
+        # timers.log(
+        #     timers_to_log,
+        #     normalizer=args.log_interval,
+        #     wbrun=wbrun,
+        # )
         # timers.track(timers_to_log, iteration=iteration, normalizer=total_iterations, wbrun=wbrun)
 
 
