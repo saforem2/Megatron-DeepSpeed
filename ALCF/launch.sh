@@ -9,6 +9,15 @@ source "${DIR}/args.sh"
 
 MAIN="${PARENT}/pretrain_gpt.py"
 
+printJobInfo() {
+  echo "Job started at: ${TSTAMP} on $(hostname)"
+  echo "Job running in: ${DIR}"
+  echo "Training GPT-3 with ${MODEL_SIZE} parameters"
+  echo "Writing logs to: ${OUTPUT_DIR}"
+  echo 'to view output: tail -f $(tail -1 ${PARENT}/logfiles)'
+  echo "i.e. tail -f $(tail -1 $PARENT/logfiles)"
+}
+
 singleGPU() {
   echo "\
     Running on 1 ranks \
@@ -19,8 +28,13 @@ singleGPU() {
     ${MAIN} \
     ${gpt_args} \
     ${ds_args}"
+  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu1-$TSTAMP.log"
+  mkdir -p $(dirname ${OUTPUT_LOG})
+  echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
+  printJobInfo | tee -a "${OUTPUT_LOG}"
   echo EXEC="${EXEC}"
-  ${EXEC} "$@"
+  echo "Writing logs to: ${OUTPUT_LOG}"
+  ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -42,8 +56,13 @@ fullNode() {
     ${MAIN} \
     ${gpt_args} \
     ${ds_args}"
+  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu${NGPUS}-$TSTAMP.log"
+  mkdir -p $(dirname ${OUTPUT_LOG})
+  echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
+  printJobInfo | tee -a "${OUTPUT_LOG}"
   echo EXEC="${EXEC}"
-  ${EXEC} "$@"
+  echo "Writing logs to: ${OUTPUT_LOG}"
+  ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -65,6 +84,11 @@ elasticDistributed() {
       ${MAIN} \
       ${gpt_args} \
       ${ds_args}"
+  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks${NRANKS}-ngpu${NGPUS}-$TSTAMP.log"
+  mkdir -p $(dirname ${OUTPUT_LOG})
+  echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
+  printJobInfo | tee -a "${OUTPUT_LOG}"
   echo EXEC="${EXEC}"
-  ${EXEC} "$@"
+  echo "Writing logs to: ${OUTPUT_LOG}"
+  ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }

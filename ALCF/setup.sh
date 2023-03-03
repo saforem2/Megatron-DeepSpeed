@@ -1,13 +1,16 @@
 #!/bin/bash --login
 
-# TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
-# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-#
 condaThetaGPU() {
   module load conda/2022-07-01 ; conda activate base
   conda activate \
     /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
   source ./venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
+}
+
+condaPolaris() {
+  module load conda/2023-01-10 ; conda activate base
+  conda activate \
+    /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
 }
 
 # ┏━━━━━━━━━━┓
@@ -40,15 +43,6 @@ setupThetaGPU() {
   else
     echo "Unexpected hostname: $(hostname)"
   fi
-}
-
-
-condaPolaris() {
-  # -- Python / Conda setup -------------------------------------------------
-  module load conda/2023-01-10
-  conda activate base
-  conda activate \
-    /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
 }
 
 # ┏━━━━━━━━━┓

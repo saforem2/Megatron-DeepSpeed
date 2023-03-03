@@ -6,7 +6,8 @@ HOST=$(hostname)
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname ${DIR})
 
-# source "${DIR}/setup.sh"
+DDP_IMPL="FSDP"
+USE_FLASH_ATTN=1
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model / Architecture settings                       ┃
@@ -44,10 +45,10 @@ GLOBAL_BATCH=1024
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-MPSIZE=8
+MPSIZE=1
 PPSIZE=1
 MICRO_BATCH=1
-ZERO_STAGE=2
+ZERO_STAGE=1
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
@@ -63,17 +64,31 @@ RUN_STR="gb${GLOBAL_BATCH}_mb${MICRO_BATCH}"
 RUN_STR="nl${NLAYERS}_hs${HIDDEN}_${RUN_STR}"
 RUN_STR="mp${MPSIZE}_pp${PPSIZE}_${RUN_STR}"
 RUN_STR="z${ZERO_STAGE}_seqlen${SEQ_LEN}_${RUN_STR}"
-RUN_STR="GPT3_${MODEL_SIZE}_${RUN_STR}"
+RUN_STR="${MODEL_SIZE}_${RUN_STR}"
+
+if [[ $USE_FLASH_ATTN == 1 ]] ; then
+  RUN_STR="flashAttn_${RUN_STR}"
+fi
+if [[ $DDP_IMPL == 'FSDP' ]]; then
+  RUN_STR="FSDP_${RUN_STR}"
+fi
+
+RUN_STR="GPT3_${RUN_STR}"
+# else
+#   RUN_STR="${RUN_STR}"
+# fi
+
 OUTPUT_DIR="${PARENT}/outputs/${RUN_STR}"
-OUTPUT_LOG="${PARENT}/outputs/${RUN_STR}/logs/$USER-$HOST-$TSTAMP.log"
 CHECKPOINT_DIR="${PARENT}/checkpoints/$RUN_STR"
 TENSORBOARD_DIR="${PARENT}/outputs/${RUN_STR}/tensorboard"
+
 export TENSORBOARD_DIR=$TENSORBOARD_DIR
-mkdir -p $OUTPUT_DIR/tensorboard/wandb
-mkdir -p $CHECKPOINT_DIR
-mkdir -p $TENSORBOARD_DIR
-mkdir -p "$(dirname "${OUTPUT_LOG}")"
-echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
+export OUTPUT_DIR=$OUTPUT_DIR
+mkdir -p "$OUTPUT_DIR/tensorboard/wandb"
+mkdir -p "$CHECKPOINT_DIR"
+mkdir -p "$TENSORBOARD_DIR"
+mkdir -p "${OUTPUT_DIR}"
+echo "OUTPUT TO: ${OUTPUT_DIR}"
 
 # if [[ -z "${NVME_PATH}" ]]; then
 #   echo "NVME_PATH: $NVME_PATH"
@@ -181,3 +196,15 @@ export gpt_args="\
   --log-timers-to-tensorboard \
   --tensorboard-log-interval 1 \
   --fp16"
+
+if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
+  gpt_args="\
+    --use-flash-attn \
+    ${gpt_args}"
+fi
+
+if [[ "$DDP_IMPL" == "FSDP" ]] ; then
+  gpt_args="\
+    --DDP-impl FSDP \
+    ${gpt_args}"
+fi
