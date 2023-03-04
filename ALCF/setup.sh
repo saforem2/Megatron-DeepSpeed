@@ -1,16 +1,25 @@
 #!/bin/bash --login
+#
+DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+PARENT=$(dirname ${DIR})
 
 condaThetaGPU() {
   module load conda/2022-07-01 ; conda activate base
   conda activate \
     /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
-  source ./venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
+  # if [[ -f "${PARENT}/.venvs/thetaGPU/2022-07-01-deepspeed/bin/activate" ]]; then
+  #   echo "Found virtual environment!"
+  #   source "${PARENT}/.venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
+  # fi
+  source "${PARENT}/venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
+  # source ../venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
 }
 
 condaPolaris() {
   module load conda/2023-01-10 ; conda activate base
   conda activate \
     /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
+  source "${PARENT}/venvs/polaris/2022-09-08/bin/activate"
 }
 
 # ┏━━━━━━━━━━┓

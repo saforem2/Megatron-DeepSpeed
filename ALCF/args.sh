@@ -45,10 +45,10 @@ GLOBAL_BATCH=1024
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-MPSIZE=1
+MPSIZE=8
 PPSIZE=1
 MICRO_BATCH=1
-ZERO_STAGE=1
+ZERO_STAGE=2
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃

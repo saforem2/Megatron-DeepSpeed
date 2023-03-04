@@ -31,6 +31,7 @@ singleGPU() {
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu1-$TSTAMP.log"
   mkdir -p $(dirname ${OUTPUT_LOG})
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
+  echo "using: $(which python3)" | tee -a "${OUTPUT_LOG}"
   printJobInfo | tee -a "${OUTPUT_LOG}"
   echo EXEC="${EXEC}"
   echo "Writing logs to: ${OUTPUT_LOG}"
