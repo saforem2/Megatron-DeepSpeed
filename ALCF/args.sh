@@ -19,23 +19,44 @@ USE_FLASH_ATTN=1
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 SEQ_LEN=2048
 
+#┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+#┃                GPT MODEL SETTINGS                   ┃
+#┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 2.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
 # MODEL_SIZE="2.7B"
 # NLAYERS=32
 # HIDDEN=2560
-# ATEN_HEADS=32
+# ATTN_HEADS=32
 # GLOBAL_BATCH=512
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 6.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="6.7B"
-NLAYERS=32
-HIDDEN=4096
-ATEN_HEADS=32
+# MODEL_SIZE="6.7B"
+# NLAYERS=32
+# HIDDEN=4096
+# ATTN_HEADS=32
+# GLOBAL_BATCH=1024
+#
+# ┏━━━━━━━━━━━━━━━━━━━┓
+# ┃ GPT-3: 13B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━┛
+MODEL_SIZE="13B"
+NLAYERS=40
+HIDDEN=5120
+ATEN_HEADS=40
 GLOBAL_BATCH=1024
+
+# ┏━━━━━━━━━━━━━━━━━━━━┓
+# ┃ GPT-3: 175B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="175B"
+# NLAYERS=96
+# HIDDEN=12288
+# ATTN_HEADS=96
+# GLOBAL_BATCH=1536
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model Parallel / Pipeline Parallel ┃
@@ -45,10 +66,10 @@ GLOBAL_BATCH=1024
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-MPSIZE=8
+MPSIZE=1
 PPSIZE=1
 MICRO_BATCH=1
-ZERO_STAGE=2
+ZERO_STAGE=1
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
@@ -163,7 +184,8 @@ fi
 # ┏━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ MEGATRON-LM SETTINGS ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━┛
-export gpt_args="\
+gpt_args="\
+  --DDP-impl ${DDP_IMPL} \
   --pipeline-model-parallel-size $PPSIZE \
   --tensor-model-parallel-size $MPSIZE \
   --num-layers $NLAYERS \
@@ -203,8 +225,10 @@ if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
     ${gpt_args}"
 fi
 
-if [[ "$DDP_IMPL" == "FSDP" ]] ; then
-  gpt_args="\
-    --DDP-impl FSDP \
-    ${gpt_args}"
-fi
+export gpt_args="${gpt_args}"
+
+# if [[ "$DDP_IMPL" == "FSDP" ]] ; then
+#   gpt_args="\
+#     --DDP-impl FSDP \
+#     ${gpt_args}"
+# fi

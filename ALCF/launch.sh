@@ -18,6 +18,14 @@ printJobInfo() {
   echo "i.e. tail -f $(tail -1 $PARENT/logfiles)"
 }
 
+launchJob() {
+  echo "using: $(which python3)" | tee -a "${OUTPUT_LOG}"
+  printJobInfo | tee -a "${OUTPUT_LOG}"
+  echo EXEC="${EXEC}" | tee -a "${OUTPUT_LOG}"
+  echo "Writing logs to: ${OUTPUT_LOG}" | tee -a "${OUTPUT_LOG}"
+  ${EXEC} "$@" # >> "${OUTPUT_LOG}" 2>&1 &
+}
+
 singleGPU() {
   echo "\
     Running on 1 ranks \
@@ -29,13 +37,16 @@ singleGPU() {
     ${gpt_args} \
     ${ds_args}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu1-$TSTAMP.log"
-  mkdir -p $(dirname ${OUTPUT_LOG})
+  # mkdir -p $(dirname ${OUTPUT_LOG})
+  mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
-  echo "using: $(which python3)" | tee -a "${OUTPUT_LOG}"
   printJobInfo | tee -a "${OUTPUT_LOG}"
-  echo EXEC="${EXEC}"
-  echo "Writing logs to: ${OUTPUT_LOG}"
-  ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
+  launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  # echo "using: $(which python3)" | tee -a "${OUTPUT_LOG}" 
+  # printJobInfo | tee -a "${OUTPUT_LOG}"
+  # echo EXEC="${EXEC}"
+  # echo "Writing logs to: ${OUTPUT_LOG}"
+  # ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -58,12 +69,14 @@ fullNode() {
     ${gpt_args} \
     ${ds_args}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu${NGPUS}-$TSTAMP.log"
-  mkdir -p $(dirname ${OUTPUT_LOG})
+  mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
-  echo EXEC="${EXEC}"
-  echo "Writing logs to: ${OUTPUT_LOG}"
-  ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
+  launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  # printJobInfo | tee -a "${OUTPUT_LOG}"
+  # echo EXEC="${EXEC}"
+  # echo "Writing logs to: ${OUTPUT_LOG}"
+  # ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -86,10 +99,13 @@ elasticDistributed() {
       ${gpt_args} \
       ${ds_args}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks${NRANKS}-ngpu${NGPUS}-$TSTAMP.log"
-  mkdir -p $(dirname ${OUTPUT_LOG})
+  # mkdir -p $(dirname ${OUTPUT_LOG})
+  mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
-  echo EXEC="${EXEC}"
-  echo "Writing logs to: ${OUTPUT_LOG}"
-  ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
+  launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  # printJobInfo | tee -a "${OUTPUT_LOG}"
+  # echo EXEC="${EXEC}"
+  # echo "Writing logs to: ${OUTPUT_LOG}"
+  # ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }
