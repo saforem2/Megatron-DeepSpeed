@@ -1,7 +1,7 @@
 #!/bin/bash --login
 #
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-PARENT=$(dirname ${DIR})
+PARENT=$(dirname "${DIR}")
 
 condaThetaGPU() {
   module load conda/2022-07-01 ; conda activate base
@@ -13,13 +13,40 @@ condaThetaGPU() {
   # fi
   # source "${PARENT}/venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
   # source ../venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
+  echo "USING PYTHON: $(which python3)"
 }
 
-condaPolaris() {
-  module load conda/2023-01-10 ; conda activate base
-  conda activate \
-    /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
-  source "${PARENT}/venvs/polaris/2022-09-08/bin/activate"
+
+condaPolaris220908() {
+  echo "Loading: 'module load conda 2022-09-08 ; conda activate base'"
+  module load conda/2022-09-08 ; conda activate base
+  conda activate /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2022-09-08-deepspeed
+  source "${PARENT}/venvs/polaris/"
+  if [[ -f "${PARENT}/venvs/polaris/2022-09-08-deepspeed/bin/activate" ]] ; then
+    echo "Found venv at: ${PARENT}/venvs/polaris/2022-09-08-deepspeed"
+    source "${PARENT}/venvs/polaris/2022-09-08-deepspeed/bin/activate"
+  fi
+}
+
+condaPolaris230110() {
+  echo "Loading: 'module load conda 2023-01-10-unstable ; conda activate base'"
+  # module load conda/2022-09-08 ; conda activate base
+  # conda activate \
+  #   /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
+  module load conda/2023-01-10-unstable ; conda activate base
+  # conda act
+  export CFLAGS="-I${CONDA_PREFIX}/include"
+  export LDFLAGS="-L${CONDA_PREFIX}/lib"
+  # conda activate \
+  #   /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
+  if [[ -f "${PARENT}/venvs/polaris/2023-01-10/bin/activate" ]]; then
+    echo "Found virtual environment!"
+    source "${PARENT}/venvs/polaris/2023-01-10/bin/activate"
+  fi
+  # source "${PARENT}/venvs/polaris/2022-09-08/bin/activate"
+  echo "USING PYTHON: $(which python3)"
+  echo "CFLAGS: ${CFLAGS}"
+  echo "LDFLAGS: ${LDFLAGS}"
 }
 
 # ┏━━━━━━━━━━┓
@@ -63,7 +90,8 @@ setupPolaris()  {
     export MACHINE="Polaris"
     HOSTFILE="${PBS_NODEFILE}"
     # -- MPI / Comms Setup ----------------------------------------------------
-    condaPolaris
+    # condaPolaris220908
+    condaPolaris230110
     # export IBV_FORK_SAFE=1
     NRANKS=$(wc -l < "${HOSTFILE}")
     NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
@@ -85,9 +113,11 @@ setupPolaris()  {
 # unset PYTHONUSERBASE
 export NCCL_DEBUG=warn
 export WANDB_CACHE_DIR="./cache/wandb"
-export CFLAGS="-I${CONDA_PREFIX}/include/"
-export LDFLAGS="-L${CONDA_PREFIX}/lib/"
-export PATH="${CONDA_PREFIX}/bin:${PATH}"
+# CFLAGS="-I${CONDA_PREFIX}/include/"
+# LDFLAGS="-L${CONDA_PREFIX}/lib/"
+# export CFLAGS="${CFLAGS}"
+# export LDFLAGS="${LDFLAGS}"
+# export PATH="${CONDA_PREFIX}/bin:${PATH}"
 
 export NVME_PATH="${NVME_PATH}"
 export MPI_DEFAULTS="${MPI_DEFAULTS}"
