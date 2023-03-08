@@ -11,7 +11,7 @@ condaThetaGPU() {
   #   echo "Found virtual environment!"
   #   source "${PARENT}/.venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
   # fi
-  source "${PARENT}/venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
+  # source "${PARENT}/venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
   # source ../venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
 }
 
@@ -37,12 +37,13 @@ setupThetaGPU() {
     NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
     NVME_PATH="/raid/scratch/"
     MPI_COMMAND=$(which mpirun)
+    # export PATH="${CONDA_PREFIX}/bin:${PATH}"
     MPI_DEFAULTS="\
       --hostfile ${HOSTFILE} \
       -x CFLAGS \
       -x LDFLAGS \
-      -x PYTHONUSERBASE \
       -x http_proxy \
+      -x PYTHONUSERBASE \
       -x https_proxy \
       -x PATH \
       -x LD_LIBRARY_PATH"
@@ -81,10 +82,12 @@ setupPolaris()  {
   fi
 }
 
+# unset PYTHONUSERBASE
 export NCCL_DEBUG=warn
 export WANDB_CACHE_DIR="./cache/wandb"
 export CFLAGS="-I${CONDA_PREFIX}/include/"
 export LDFLAGS="-L${CONDA_PREFIX}/lib/"
+export PATH="${CONDA_PREFIX}/bin:${PATH}"
 
 export NVME_PATH="${NVME_PATH}"
 export MPI_DEFAULTS="${MPI_DEFAULTS}"

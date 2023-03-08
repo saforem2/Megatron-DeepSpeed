@@ -90,14 +90,24 @@ elasticDistributed() {
     Running on ${NRANKS} ranks \
     with ${NGPU_PER_RANK} GPUs each \
     for a total of ${NGPUS} GPUs"
-  EXEC="\
-      ${MPI_COMMAND} \
-      ${MPI_DEFAULTS} \
-      ${MPI_ELASTIC} \
-      $(which python3) \
-      ${MAIN} \
-      ${gpt_args} \
-      ${ds_args}"
+  # EXEC="\
+  #     ${MPI_COMMAND} \
+  #     ${MPI_DEFAULTS} \
+  #     ${MPI_ELASTIC} \
+  #     $(which python3) \
+  #     ${MAIN} \
+  #     ${gpt_args} \
+  #     ${ds_args}"
+  EXEC_STR=(
+    "${MPI_COMMAND}"
+    "${MPI_DEFAULTS}"
+    "${MPI_ELASTIC}"
+    "$(which python3)"
+    "${MAIN}"
+    "${gpt_args}"
+    "${ds_args}"
+  )
+  EXEC="${EXEC_STR[*]}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks${NRANKS}-ngpu${NGPUS}-$TSTAMP.log"
   # mkdir -p $(dirname ${OUTPUT_LOG})
   mkdir -p "$(dirname "${OUTPUT_LOG}")"

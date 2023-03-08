@@ -6,8 +6,8 @@ HOST=$(hostname)
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname ${DIR})
 
-DDP_IMPL="FSDP"
-USE_FLASH_ATTN=1
+DDP_IMPL="FSDP"   # FSDP | local | torch
+USE_FLASH_ATTN=1  # 1 | 0
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model / Architecture settings                       ┃
@@ -34,20 +34,20 @@ SEQ_LEN=2048
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 6.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="6.7B"
-# NLAYERS=32
-# HIDDEN=4096
-# ATTN_HEADS=32
-# GLOBAL_BATCH=1024
+MODEL_SIZE="6.7B"
+NLAYERS=32
+HIDDEN=4096
+ATEN_HEADS=32
+GLOBAL_BATCH=1024
 #
 # ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 13B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="13B"
-NLAYERS=40
-HIDDEN=5120
-ATEN_HEADS=40
-GLOBAL_BATCH=1024
+# MODEL_SIZE="13B"
+# NLAYERS=40
+# HIDDEN=5120
+# ATEN_HEADS=40
+# GLOBAL_BATCH=1024
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 175B Params ┃
@@ -69,7 +69,7 @@ GLOBAL_BATCH=1024
 MPSIZE=1
 PPSIZE=1
 MICRO_BATCH=1
-ZERO_STAGE=1
+ZERO_STAGE=0  # 0 | 1 | 2 | 3
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
@@ -95,9 +95,7 @@ if [[ $DDP_IMPL == 'FSDP' ]]; then
 fi
 
 RUN_STR="GPT3_${RUN_STR}"
-# else
-#   RUN_STR="${RUN_STR}"
-# fi
+
 
 OUTPUT_DIR="${PARENT}/outputs/${RUN_STR}"
 CHECKPOINT_DIR="${PARENT}/checkpoints/$RUN_STR"
@@ -134,6 +132,7 @@ cat <<EOT > $DS_CONFIG
   "train_batch_size" : $GLOBAL_BATCH,
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
   "steps_per_print": 1,
+  "wall_clock_breakdown" : true,
   "zero_optimization": {
     "stage": $ZERO_STAGE,
     "allgather_partitions": true,
@@ -141,6 +140,11 @@ cat <<EOT > $DS_CONFIG
     "allgather_bucket_size": 5e8,
     "overlap_comm": true,
     "contiguous_gradients": true,
+    "offload_param": {
+      "device": "nvme",
+      "nvme_path": "/raid/scratch",
+      "pin_memory": false
+    },
     "offload_optimizer": {
       "device": "nvme",
       "nvme_path": "/raid/scratch/"
@@ -150,12 +154,11 @@ cat <<EOT > $DS_CONFIG
     "enabled": true,
     "initial_scale_power": 12
   },
-  "wall_clock_breakdown" : true,
   "flops_profiler": {
     "enabled": true,
-    "profile_step": -1,
+    "profile_step": 1,
     "module_depth": -1,
-    "top_modules": 1,
+    "top_modules": 3,
     "detailed": true,
     "output_file": null
   },
@@ -185,11 +188,12 @@ fi
 # ┃ MEGATRON-LM SETTINGS ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━┛
 gpt_args="\
+  --seed ${RANDOM} \
   --DDP-impl ${DDP_IMPL} \
-  --pipeline-model-parallel-size $PPSIZE \
-  --tensor-model-parallel-size $MPSIZE \
-  --num-layers $NLAYERS \
-  --hidden-size $HIDDEN \
+  --pipeline-model-parallel-size ${PPSIZE} \
+  --tensor-model-parallel-size ${MPSIZE} \
+  --num-layers ${NLAYERS} \
+  --hidden-size ${HIDDEN} \
   --num-attention-heads ${ATEN_HEADS} \
   --micro-batch-size ${MICRO_BATCH} \
   --global-batch-size ${GLOBAL_BATCH} \
@@ -226,9 +230,3 @@ if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
 fi
 
 export gpt_args="${gpt_args}"
-
-# if [[ "$DDP_IMPL" == "FSDP" ]] ; then
-#   gpt_args="\
-#     --DDP-impl FSDP \
-#     ${gpt_args}"
-# fi
