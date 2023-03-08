@@ -52,6 +52,7 @@ def _get_params_for_weight_decay_optimization(modules):
     return weight_decay_params, no_weight_decay_params
 
 def get_megatron_optimizer(model):
+    import torch
     args = get_args()
 
     # Base optimizer.
@@ -71,20 +72,27 @@ def get_megatron_optimizer(model):
                                        lr=args.lr,
                                        weight_decay=args.weight_decay)
     else:
-        if args.optimizer == 'adam':
-            optimizer = Adam(param_groups,
-                            lr=args.lr,
-                            weight_decay=args.weight_decay,
-                            betas=(args.adam_beta1, args.adam_beta2),
-                            eps=args.adam_eps)
-        elif args.optimizer == 'sgd':
-            optimizer = SGD(param_groups,
-                            lr=args.lr,
-                            weight_decay=args.weight_decay,
-                            momentum=args.sgd_momentum)
-        else:
-            raise Exception('{} optimizer is not supported.'.format(
-            args.optimizer))
+        # if args.optimizer == 'adam':
+        #     optimizer = Adam(param_groups,
+        #                     lr=args.lr,
+        #                     weight_decay=args.weight_decay,
+        #                     betas=(args.adam_beta1, args.adam_beta2),
+        #                     eps=args.adam_eps)
+        # elif args.optimizer == 'sgd':
+        #     optimizer = SGD(param_groups,
+        #                     lr=args.lr,
+        #                     weight_decay=args.weight_decay,
+        #                     momentum=args.sgd_momentum)
+        # else:
+        #     raise Exception('{} optimizer is not supported.'.format(
+        #     args.optimizer))
+        optimizer = torch.optim.AdamW(
+            param_groups,
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_eps
+        )
 
     if args.deepspeed:
         return optimizer
