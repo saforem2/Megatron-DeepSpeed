@@ -12,16 +12,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Pretrain GPT"""
 from __future__ import absolute_import, annotations, division, print_function
 
-from deepspeed.comm import get_global_rank
 import socket
 import torch
 import time
 import math
-import hydra
+import deepspeed
+import os
+import logging
+import subprocess
+import wandb
+
+import torch.nn.functional as F
+
+from dist import setup_torch
+from torch import distributed as ptdist
+from torch import nn
 from functools import partial
 from megatron import get_args
 from megatron import print_rank_0
@@ -33,30 +41,16 @@ from megatron.model import GPTModel, GPTModelPipe
 from megatron.training import pretrain
 from megatron.utils import get_ltor_masks_and_position_ids
 from megatron.utils import average_losses_across_data_parallel_group
-
-import deepspeed
 from deepspeed.runtime.utils import see_memory_usage
 from deepspeed.accelerator.real_accelerator import get_accelerator
-import os
-import subprocess
-import wandb
-from wandb.util import generate_id
 
-from torch import nn
-import torch.nn.functional as F
+# from wandb.util import generate_id
+# from megatron import is_rank_0, is_last_rank
+# from mpi4py import MPI
 
-from megatron import is_rank_0, is_last_rank
-from mpi4py import MPI
-
-import logging
 
 log = logging.getLogger(__name__)
 
-# import sys
-from torch import distributed as ptdist
-# WORLD_SIZE = ptdist.get_world_size()
-
-from dist import setup_torch
 
 setup_torch(
     backend='deepspeed',
@@ -64,10 +58,8 @@ setup_torch(
 )
 log.info(f'Hello from {ptdist.get_rank()} / {ptdist.get_world_size()}')
 
-# if is_rank_0():
 
 def get_rank() -> int:
-    # return int(MPI.COMM_WORLD.Get_rank())
     return ptdist.get_rank()
 
 
@@ -199,7 +191,8 @@ def get_batch(data_iterator):
         tokenizer.eod,
         args.reset_position_ids,
         args.reset_attention_mask,
-        args.eod_mask_loss)
+        args.eod_mask_loss
+    )
 
     return tokens, labels, loss_mask, attention_mask, position_ids
 
@@ -411,7 +404,13 @@ def git_ds_info():
     else:
         git_hash = "unknown"
         git_branch = "unknown"
-    print_rank_0(f'**** Git info for Megatron: git_hash={git_hash} git_branch={git_branch} ****')
+    print_rank_0(
+        '**** '
+        'Git info for Megatron: '
+        f'git_hash={git_hash} '
+        f'git_branch={git_branch} '
+        '****'
+    )
 
 
 # import hydra

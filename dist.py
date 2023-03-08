@@ -24,6 +24,17 @@ BACKENDS = [
 ]
 
 
+def seed_everything(seed: int):
+    import torch
+    import numpy as np
+    import random
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+
 def setup_tensorflow(
         precision: Optional[str] = None,
         ngpus: Optional[int] = None,
@@ -318,6 +329,8 @@ def setup_torch(
         torch.cuda.set_device(local_rank)
 
     log.info(f'Global Rank: {rank} / {size-1}')
+    if seed is not None:
+        seed_everything(seed * (rank + 1) * (local_rank + 1))
     return rank
 
 
