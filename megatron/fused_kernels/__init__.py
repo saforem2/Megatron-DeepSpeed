@@ -33,8 +33,9 @@ def load(args):
     # Check if cuda 11 is installed for compute capability 8.0
     cc_flag = []
     if torch.version.hip is None:
-        _, bare_metal_major, _ = _get_cuda_bare_metal_version(
-            cpp_extension.CUDA_HOME)
+        # _, bare_metal_major, _ = _get_cuda_bare_metal_version(
+        #     cpp_extension.CUDA_HOME)
+        bare_metal_major = torch.version.cuda.split('.')[0]
         if int(bare_metal_major) >= 11:
             cc_flag.append('-gencode')
             cc_flag.append('arch=compute_80,code=sm_80')
