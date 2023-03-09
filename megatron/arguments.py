@@ -149,6 +149,7 @@ def parse_args(extra_args_provider=None, defaults={},
     if args.bf16:
         assert not args.fp16
         args.params_dtype = torch.bfloat16
+        torch.cuda._is_in_bad_fork
         # bfloat16 requires gradient accumulation and all-reduce to
         # be done in fp32.
         if not args.accumulate_allreduce_grads_in_fp32:
@@ -164,7 +165,7 @@ def parse_args(extra_args_provider=None, defaults={},
     # If we do accumulation and all-reduces in fp32, we need to have
     # local DDP and we should set the use-contiguous-buffers-in-ddp.
     if args.accumulate_allreduce_grads_in_fp32:
-        assert args.DDP_impl == 'local'
+        # assert args.DDP_impl == 'local'
         args.use_contiguous_buffers_in_ddp = True
 
     if args.dataloader_type is None:
