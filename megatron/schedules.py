@@ -53,10 +53,18 @@ def forward_step(forward_step_func, data_iterator, model, input_tensor, losses_r
     timers('forward-compute').start()
     unwrapped_model = unwrap_model(
         model, (torchDDP, LocalDDP, Float16Module))
-    if not args.deepspeed:
-        unwrapped_model.set_input_tensor(input_tensor)
-    else:
-        unwrapped_model.module.set_input_tensor(input_tensor)
+    try:
+        if not args.deepspeed:
+            # if (
+            #         setter := getattr(unwrapped_model, 'set_input_tensor', None)
+            # ) is not None:
+            #     unwrapped_model.set_input_tensor(input_tensor)
+            unwrapped_model.set_input_tensor(input_tensor)
+        else:
+            unwrapped_model.module.set_input_tensor(input_tensor)
+    except:
+        pass
+        # import pudb; pudb.set_trace()
 
     # Note: it's recommended to NOT add any new argument to forward_step_func()
     # because it is an abstract API used by many different models and tasks.

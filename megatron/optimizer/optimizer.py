@@ -241,10 +241,20 @@ class Float16OptimizerWithFloat16Params(MegatronOptimizer):
                 if param.requires_grad:
 
                     # float16 params:
-
-
-                    if param.type() in ['torch.{}.HalfTensor'.format(get_accelerator().device_name()),
-                                        'torch.{}.BFloat16Tensor'.format(get_accelerator().device_name())]:
+                    fp16_dtypes = (
+                        torch.half,
+                        torch.bfloat16,
+                        torch.float16,
+                    )
+                    fp16_names = (
+                        f'torch.{get_accelerator().device_name()}.HalfTensor',
+                        f'torch.{get_accelerator().device_name()}.BFloat16Tensor',
+                    )
+                    # if param.type() in [
+                    #         'torch.{}.HalfTensor'.format(get_accelerator().device_name()),
+                    #         'torch.{}.BFloat16Tensor'.format(get_accelerator().device_name()),
+                    # ]:
+                    if param.type() in fp16_names or param.dtype in fp16_dtypes:
                         float16_params_this_group.append(param)
                         # Create a copy
                         main_param = param.detach().clone().float()
@@ -268,11 +278,12 @@ class Float16OptimizerWithFloat16Params(MegatronOptimizer):
 
                     else:
                         device_name = get_accelerator().device_name()
-                        raise TypeError('Wrapped parameters must be one of '
-                                        'torch.{}.FloatTensor,  '
-                                        'torch.{}.HalfTensor, or '
-                                        'torch.{}.BFloat16Tensor. '
-                                        'Received {}'.format(device_name,device_name,device_name,param.type()))
+                        import pudb ; pudb.set_trace()
+                        # raise TypeError('Wrapped parameters must be one of '
+                        #                 'torch.{}.FloatTensor,  '
+                        #                 'torch.{}.HalfTensor, or '
+                        #                 'torch.{}.BFloat16Tensor. '
+                        #                 'Received {}'.format(device_name,device_name,device_name,param.type()))
 
             self.float16_groups.append(float16_params_this_group)
             self.fp32_from_float16_groups.append(
