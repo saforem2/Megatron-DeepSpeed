@@ -1,7 +1,7 @@
 #!/bin/bash --login
 
 USER=$(whoami)
-HOST=$(hostname)
+# HOST=$(hostname)
 
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname ${DIR})
@@ -69,7 +69,7 @@ GLOBAL_BATCH=1024
 MPSIZE=1
 PPSIZE=1
 MICRO_BATCH=1
-ZERO_STAGE=0  # 0 | 1 | 2 | 3
+ZERO_STAGE=1  # 0 | 1 | 2 | 3
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
@@ -141,12 +141,12 @@ cat <<EOT > $DS_CONFIG
     "overlap_comm": true,
     "contiguous_gradients": true,
     "offload_param": {
-      "device": "nvme",
+      "device": "cpu",
       "nvme_path": "/raid/scratch",
       "pin_memory": false
     },
     "offload_optimizer": {
-      "device": "nvme",
+      "device": "cpu",
       "nvme_path": "/raid/scratch/"
     }
   },
@@ -172,17 +172,19 @@ EOT
 # ┏━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ DeepSpeed Arguments ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━┛
-ds_args=""
-ds_args=" --deepspeed ${ds_args}"
-ds_args=" --deepspeed_mpi ${ds_args}"
-ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
-ds_args=" --zero-stage=$ZERO_STAGE ${ds_args}"
-ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
-# ds_args=" --pipeline-model-parallel-size ${PPSIZE} ${ds_args}"
-
-if [[ "${PPSIZE}" == 1 ]]; then
-  ds_args="${ds_args} --no-pipeline-parallel"
+if [[ "${DDP_IMPL}" != "FSDP" ]] ; then
+  ds_args=""
+  ds_args=" --deepspeed ${ds_args}"
+  ds_args=" --deepspeed_mpi ${ds_args}"
+  ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
+  ds_args=" --zero-stage=$ZERO_STAGE ${ds_args}"
+  ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
+  # ds_args=" --pipeline-model-parallel-size ${PPSIZE} ${ds_args}"
+  if [[ "${PPSIZE}" == 1 ]]; then
+    ds_args="${ds_args} --no-pipeline-parallel"
+  fi
 fi
+
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ MEGATRON-LM SETTINGS ┃
@@ -220,8 +222,14 @@ gpt_args="\
   --eval-iters 1 \
   --tensorboard-dir ${TENSORBOARD_DIR} \
   --log-timers-to-tensorboard \
-  --tensorboard-log-interval 1 \
-  --fp16"
+  --tensorboard-log-interval 1"
+
+
+if [[ "${DDP_IMPL}" != "FSDP" ]] ; then
+  gpt_args="${gpt_args} --fp16"
+else
+  gpt_args="${gpt_args} --bf16"
+fi
 
 if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
   gpt_args="\

@@ -1,13 +1,24 @@
 #!/bin/bash --login
-#
 
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname ${DIR})
-
-source "${DIR}/setup.sh"
-source "${DIR}/args.sh"
-
 MAIN="${PARENT}/pretrain_gpt.py"
+
+ARGS_FILE="${DIR}/args.sh"
+if [[ -f "${ARGS_FILE}" ]]; then
+  echo "source-ing ${ARGS_FILE}"
+  source "${ARGS_FILE}"
+else
+  echo "ERROR: UNABLE TO SOURCE ${ARGS_FILE}"
+fi
+
+SETUP_FILE="${DIR}/setup.sh"
+if [[ -f "${SETUP_FILE}" ]]; then
+  echo "source-ing ${SETUP_FILE}"
+  source "${SETUP_FILE}"
+else
+  echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
+fi
 
 printJobInfo() {
   echo "Job started at: ${TSTAMP} on $(hostname)"
@@ -37,16 +48,10 @@ singleGPU() {
     ${gpt_args} \
     ${ds_args}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu1-$TSTAMP.log"
-  # mkdir -p $(dirname ${OUTPUT_LOG})
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
   launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
-  # echo "using: $(which python3)" | tee -a "${OUTPUT_LOG}" 
-  # printJobInfo | tee -a "${OUTPUT_LOG}"
-  # echo EXEC="${EXEC}"
-  # echo "Writing logs to: ${OUTPUT_LOG}"
-  # ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -73,10 +78,6 @@ fullNode() {
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
   launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
-  # printJobInfo | tee -a "${OUTPUT_LOG}"
-  # echo EXEC="${EXEC}"
-  # echo "Writing logs to: ${OUTPUT_LOG}"
-  # ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -90,14 +91,6 @@ elasticDistributed() {
     Running on ${NRANKS} ranks \
     with ${NGPU_PER_RANK} GPUs each \
     for a total of ${NGPUS} GPUs"
-  # EXEC="\
-  #     ${MPI_COMMAND} \
-  #     ${MPI_DEFAULTS} \
-  #     ${MPI_ELASTIC} \
-  #     $(which python3) \
-  #     ${MAIN} \
-  #     ${gpt_args} \
-  #     ${ds_args}"
   EXEC_STR=(
     "${MPI_COMMAND}"
     "${MPI_DEFAULTS}"
@@ -109,13 +102,8 @@ elasticDistributed() {
   )
   EXEC="${EXEC_STR[*]}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks${NRANKS}-ngpu${NGPUS}-$TSTAMP.log"
-  # mkdir -p $(dirname ${OUTPUT_LOG})
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
   launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
-  # printJobInfo | tee -a "${OUTPUT_LOG}"
-  # echo EXEC="${EXEC}"
-  # echo "Writing logs to: ${OUTPUT_LOG}"
-  # ${EXEC} "$@"  >> "${OUTPUT_LOG}" 2>&1 &
 }

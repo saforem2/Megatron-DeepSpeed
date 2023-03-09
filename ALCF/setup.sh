@@ -3,7 +3,7 @@
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname "${DIR}")
 
-condaThetaGPU() {
+condaThetaGPU220701() {
   module load conda/2022-07-01 ; conda activate base
   conda activate \
     /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
@@ -11,8 +11,23 @@ condaThetaGPU() {
   #   echo "Found virtual environment!"
   #   source "${PARENT}/.venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
   # fi
-  # source "${PARENT}/venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
-  # source ../venvs/thetaGPU/2022-07-01-deepspeed/bin/activate
+}
+
+condaThetaGPU230111() {
+  module load conda/2023-01-11 ; conda activate base
+  conda activate \
+    /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2023-01-11-deepspeed
+  VENV_DIR="${PARENT}/venvs/thetaGPU/2023-01-11-deepspeed"
+  if [[ -d "${VENV_DIR}" ]] ; then
+    echo "Found venv at: ${VENV_DIR}"
+    source "${VENV_DIR}/bin/activate"
+  fi
+}
+
+condaThetaGPU() {
+  module load conda/2022-07-01 ; conda activate base
+  conda activate \
+    /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
   echo "USING PYTHON: $(which python3)"
 }
 
@@ -21,32 +36,27 @@ condaPolaris220908() {
   echo "Loading: 'module load conda 2022-09-08 ; conda activate base'"
   module load conda/2022-09-08 ; conda activate base
   conda activate /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2022-09-08-deepspeed
-  source "${PARENT}/venvs/polaris/"
-  if [[ -f "${PARENT}/venvs/polaris/2022-09-08-deepspeed/bin/activate" ]] ; then
-    echo "Found venv at: ${PARENT}/venvs/polaris/2022-09-08-deepspeed"
-    source "${PARENT}/venvs/polaris/2022-09-08-deepspeed/bin/activate"
+  export CFLAGS="-I${CONDA_PREFIX}/include"
+  export LDFLAGS="-L${CONDA_PREFIX}/lib"
+  VENV_DIR="${PARENT}/venvs/polaris/2022-09-08"
+  if [[ -d "${VENV_DIR}" ]]; then
+    echo "Found venv at: ${VENV_DIR}"
+    source "${VENV_DIR}/bin/activate"
   fi
 }
 
 condaPolaris230110() {
   echo "Loading: 'module load conda 2023-01-10-unstable ; conda activate base'"
-  # module load conda/2022-09-08 ; conda activate base
-  # conda activate \
-  #   /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
   module load conda/2023-01-10-unstable ; conda activate base
-  # conda act
   export CFLAGS="-I${CONDA_PREFIX}/include"
   export LDFLAGS="-L${CONDA_PREFIX}/lib"
   # conda activate \
   #   /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2023-01-10
-  if [[ -f "${PARENT}/venvs/polaris/2023-01-10/bin/activate" ]]; then
-    echo "Found virtual environment!"
-    source "${PARENT}/venvs/polaris/2023-01-10/bin/activate"
+  VENV_DIR="${PARENT}/venvs/polaris/2023-01-10/"
+  if [[ -d "${VENV_DIR}" ]]; then
+    echo "Found venv at: ${VENV_DIR}"
+    source "${VENV_DIR}/bin/activate"
   fi
-  # source "${PARENT}/venvs/polaris/2022-09-08/bin/activate"
-  echo "USING PYTHON: $(which python3)"
-  echo "CFLAGS: ${CFLAGS}"
-  echo "LDFLAGS: ${LDFLAGS}"
 }
 
 # ┏━━━━━━━━━━┓
@@ -126,6 +136,9 @@ export MPI_COMMAND="${MPI_COMMAND}"
 
 PYTHON_EXECUTABLE="$(which python3)"
 export PYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
+echo "USING PYTHON: $(which python3)"
+echo "CFLAGS: ${CFLAGS}"
+echo "LDFLAGS: ${LDFLAGS}"
 # source "${DIR}/args.sh"
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
