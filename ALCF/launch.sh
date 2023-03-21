@@ -7,6 +7,7 @@ MAIN="${PARENT}/pretrain_gpt.py"
 ARGS_FILE="${DIR}/args.sh"
 if [[ -f "${ARGS_FILE}" ]]; then
   echo "source-ing ${ARGS_FILE}"
+  # shellcheck source=./args.sh
   source "${ARGS_FILE}"
 else
   echo "ERROR: UNABLE TO SOURCE ${ARGS_FILE}"
@@ -15,6 +16,7 @@ fi
 SETUP_FILE="${DIR}/setup.sh"
 if [[ -f "${SETUP_FILE}" ]]; then
   echo "source-ing ${SETUP_FILE}"
+  # shellcheck source=./setup.sh
   source "${SETUP_FILE}"
 else
   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
@@ -61,6 +63,7 @@ fullNode() {
   NRANKS=1
   NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
   NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
+  echo $(hostname) > $DIR/hostfile
   echo "\
     Running on $NRANKS ranks \
     with $NGPU_PER_RANK GPUs each \
@@ -68,12 +71,13 @@ fullNode() {
   EXEC="\
     ${MPI_COMMAND} \
     ${MPI_DEFAULTS} \
+    --hostfile ${DIR}/hostfile \
     -n ${NGPUS}
     $(which python3) \
     ${MAIN} \
     ${gpt_args} \
     ${ds_args}"
-  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu${NGPUS}-$TSTAMP.log"
+  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks${NRANKS}-ngpu${NGPUS}-$TSTAMP.log"
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"

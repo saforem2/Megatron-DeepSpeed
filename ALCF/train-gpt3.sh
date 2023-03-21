@@ -7,6 +7,7 @@ DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 LAUNCH_FILE="${DIR}/launch.sh"
 if [[ -f "${LAUNCH_FILE}" ]]; then
   echo "source-ing ${LAUNCH_FILE}"
+  # shellcheck source=./launch.sh
   source "${LAUNCH_FILE}"
 else
   echo "ERROR: UNABLE TO SOURCE ${LAUNCH_FILE}"
@@ -15,6 +16,6 @@ fi
 
 
 setup
-singleGPU "$@" 2>&1 &
-# fullNode  "$@" 2>&1 &
-# elasticDistributed "$@" 2>&1 &
+# singleGPU "$@" 2>&1 &
+# fullNode "$@" 2>&1 &
+elasticDistributed "$@" 2>&1 &

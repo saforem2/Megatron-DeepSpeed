@@ -6,8 +6,9 @@ USER=$(whoami)
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname ${DIR})
 
-DDP_IMPL="FSDP"   # FSDP | local | torch
-USE_FLASH_ATTN=1  # 1 | 0
+DDP_IMPL="local"   # FSDP | local | torch
+USE_FLASH_ATTN=0  # 1 | 0
+USE_ACTIVATION_CHECKPOINTING=0  # 1 | 0
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model / Architecture settings                       ┃
@@ -17,7 +18,15 @@ USE_FLASH_ATTN=1  # 1 | 0
 # ┃ https://arxiv.org/abs/2005.14165, choose based on   ┃
 # ┃ your desired model size or build your own configs   ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+# TESTED:
+# - [✓] 2048
+# - [✓] 4096
+# - [✓] 8192
+# - [✓] 16384 (w/ ZeRO = 3)
+# - [✓] 32768 (w/ ZeRO = 3)
+# - [x] 65536 (w/ ZeRO = 3)
 SEQ_LEN=2048
+
 
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃                GPT MODEL SETTINGS                   ┃
@@ -25,28 +34,46 @@ SEQ_LEN=2048
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 2.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="2.7B"
-# NLAYERS=32
-# HIDDEN=2560
-# ATTN_HEADS=32
-# GLOBAL_BATCH=512
-
-# ┏━━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 6.7B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="6.7B"
+MODEL_SIZE="2.7B"
 NLAYERS=32
-HIDDEN=4096
+HIDDEN=2560
 ATEN_HEADS=32
-GLOBAL_BATCH=1024
-#
-# ┏━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 13B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━┛
+GLOBAL_BATCH=512
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ ✓ GPT-3: 6.7B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="6.7B"
+# NLAYERS=32
+# HIDDEN=4096
+# ATEN_HEADS=32
+# GLOBAL_BATCH=1024
+
+# ┏━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ ✓ GPT-3: 13B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━┛
 # MODEL_SIZE="13B"
 # NLAYERS=40
 # HIDDEN=5120
 # ATEN_HEADS=40
+# GLOBAL_BATCH=1024
+
+# ┏━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ ✓ GPT-3: 20B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="20B"
+# NLAYERS=44
+# HIDDEN=6144
+# ATEN_HEADS=64
+# GLOBAL_BATCH=1024
+
+# ┏━━━━━━━━━━━━━━━━━━━┓
+# ┃ GPT-3: 25B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="25B"
+# NLAYERS=64
+# HIDDEN=5760
+# ATEN_HEADS=64
 # GLOBAL_BATCH=1024
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
@@ -55,7 +82,7 @@ GLOBAL_BATCH=1024
 # MODEL_SIZE="175B"
 # NLAYERS=96
 # HIDDEN=12288
-# ATTN_HEADS=96
+# ATEN_HEADS=96
 # GLOBAL_BATCH=1536
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -66,8 +93,8 @@ GLOBAL_BATCH=1024
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-MPSIZE=1
-PPSIZE=1
+MPSIZE=8
+PPSIZE=16
 MICRO_BATCH=1
 ZERO_STAGE=1  # 0 | 1 | 2 | 3
 
@@ -101,6 +128,7 @@ OUTPUT_DIR="${PARENT}/outputs/${RUN_STR}"
 CHECKPOINT_DIR="${PARENT}/checkpoints/$RUN_STR"
 TENSORBOARD_DIR="${PARENT}/outputs/${RUN_STR}/tensorboard"
 
+export MODEL_SIZE="${MODEL_SIZE}"
 export TENSORBOARD_DIR=$TENSORBOARD_DIR
 export OUTPUT_DIR=$OUTPUT_DIR
 mkdir -p "$OUTPUT_DIR/tensorboard/wandb"
@@ -178,10 +206,12 @@ if [[ "${DDP_IMPL}" != "FSDP" ]] ; then
   ds_args=" --deepspeed_mpi ${ds_args}"
   ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
   ds_args=" --zero-stage=$ZERO_STAGE ${ds_args}"
-  ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
   # ds_args=" --pipeline-model-parallel-size ${PPSIZE} ${ds_args}"
   if [[ "${PPSIZE}" == 1 ]]; then
-    ds_args="${ds_args} --no-pipeline-parallel"
+    ds_args="--no-pipeline-parallel ${ds_args}"
+  fi
+  if [[ "${USE_ACTIVATION_CHECKPOINTING}" == 1 ]]; then
+    ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
   fi
 fi
 
