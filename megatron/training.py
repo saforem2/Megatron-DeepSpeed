@@ -101,18 +101,18 @@ def pretrain(train_valid_test_dataset_provider,
         args_defaults: a dictionary from argument-name to argument-value. It
             to set already parse arguments.
     """
-
     # Initalize and get arguments, timers, and Tensorboard writer.
     initialize_megatron(extra_args_provider=extra_args_provider,
                         args_defaults=args_defaults)
-
     # Adjust the startup time so it reflects the largest value.
     # This will be closer to what scheduler will see (outside of
     # image ... launches.
     global _TRAIN_START_TIME
     start_time_tensor = get_accelerator().FloatTensor([_TRAIN_START_TIME])
-    torch.distributed.all_reduce(start_time_tensor,
-                                 op=torch.distributed.ReduceOp.MIN)
+    torch.distributed.all_reduce(
+        start_time_tensor,
+        op=torch.distributed.ReduceOp.MIN
+    )
     _TRAIN_START_TIME = start_time_tensor.item()
     print_rank_0('time to initialize megatron (seconds): {:.3f}'.format(
         time.time() - _TRAIN_START_TIME))
@@ -120,27 +120,37 @@ def pretrain(train_valid_test_dataset_provider,
 
     args = get_args()
     timers = get_timers()
-
     if args.deepspeed:
         args.deepspeed_configuration = json.load(
             open(args.deepspeed_config, 'r', encoding='utf-8'))
-        if "curriculum_learning" in args.deepspeed_configuration and \
-            "enabled" in args.deepspeed_configuration["curriculum_learning"]:
-            args.curriculum_learning_legacy = args.deepspeed_configuration[ \
-                "curriculum_learning"]["enabled"]
-        if args.curriculum_learning_legacy and not args.no_pipeline_parallel:
-            from deepspeed.runtime.data_pipeline.curriculum_scheduler \
-                import CurriculumScheduler
-            args.curriculum_scheduler = CurriculumScheduler( \
-                args.deepspeed_configuration["curriculum_learning"])
+        if (
+                "curriculum_learning" in args.deepspeed_configuration and
+                "enabled" in args.deepspeed_configuration["curriculum_learning"]
+        ):
+            args.curriculum_learning_legacy = (
+                args.deepspeed_configuration["curriculum_learning"]["enabled"]
+            )
+        if (
+                args.curriculum_learning_legacy
+                and not args.no_pipeline_parallel
+        ):
+            from deepspeed.runtime.data_pipeline.curriculum_schedule import (
+                CurriculumScheduler
+            )
+            args.curriculum_scheduler = CurriculumScheduler(
+                args.deepspeed_configuration["curriculum_learning"]
+            )
         if "compression_training" in args.deepspeed_configuration:
             args.compression_training = True
 
     # Model, optimizer, and learning rate.
     timers('model-and-optimizer-setup').start()
     model, optimizer, lr_scheduler = setup_model_and_optimizer(
-        model_provider, teacher=False, data_post_process=data_post_process,
-        build_train_valid_test_datasets_provider=train_valid_test_dataset_provider)
+        model_provider,
+        teacher=False,
+        data_post_process=data_post_process,
+        build_train_valid_test_datasets_provider=train_valid_test_dataset_provider
+    )
     timers('model-and-optimizer-setup').stop()
     print_datetime('after model, optimizer, and learning rate '
                    'scheduler are built')
@@ -597,12 +607,16 @@ def setup_model_and_optimizer(model_provider_func, teacher=False,
     return model, optimizer, lr_scheduler
 
 
-def train_step(forward_step_func, data_iterator,
-               model, optimizer, lr_scheduler):
+def train_step(
+        forward_step_func,
+        data_iterator,
+        model,
+        optimizer,
+        lr_scheduler
+):
     """Single training step."""
     args = get_args()
     timers = get_timers()
-
     if args.deepspeed and args.ds_pipeline_enabled:
         skipped_iter = 0
         num_zeros_in_grad = 0
