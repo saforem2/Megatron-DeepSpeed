@@ -47,9 +47,11 @@ from deepspeed.accelerator.real_accelerator import get_accelerator
 # from wandb.util import generate_id
 # from megatron import is_rank_0, is_last_rank
 # from mpi4py import MPI
+from pathlib import Path
 
 
 log = logging.getLogger(__name__)
+HERE = Path(os.path.abspath(__file__)).parent
 
 
 setup_torch(
@@ -67,7 +69,7 @@ def is_first_rank():
     return get_rank() == 0
 
 
-wbrun = None
+WBRUN = None
 # if get_rank() == 0:
 if is_first_rank():
     tensorboard_dir = os.environ.get('TENSORBOARD_DIR', None)
@@ -75,7 +77,7 @@ if is_first_rank():
         log.info(f'Patching tensorboard from {tensorboard_dir}')
         wandb.tensorboard.patch(root_logdir=tensorboard_dir)
     # os.environ['WANDB_RUN_GROUP'] = f'experiment-{generate_id()}'
-    wbrun = wandb.init(
+    WBRUN = wandb.init(
         project='Megatron-LM',
         sync_tensorboard=True,
         dir=tensorboard_dir,
@@ -83,20 +85,26 @@ if is_first_rank():
         # sync_tensorboard=True,
         # group=f'experiment-{generate_id()}'
     )
-    if wbrun is not None and wbrun is wandb.run:
-        wbrun.config.update({'world_size': ptdist.get_world_size()})
+    assert WBRUN is not None and WBRUN is wandb.run
+    WBRUN.log_code(HERE.as_posix())
+    model_size = os.environ.get('MODEL_SIZE', None)
+    if model_size is not None:
+        WBRUN.config.update({'MODEL_SIZE': model_size})
+    if WBRUN is not None:
+        assert WBRUN is wandb.run
+        WBRUN.config.update({'world_size': ptdist.get_world_size()})
         env = dict(os.environ)
         _ = env.pop('LS_COLORS', None)
-        wbrun.config.update({'env': env})
+        WBRUN.config.update({'env': env})
         hostname = socket.gethostbyaddr(socket.gethostname())[0]
         if hostname.startswith('theta'):
-            wbrun.config.update({'machine': 'ThetaGPU'})
+            WBRUN.config.update({'machine': 'ThetaGPU'})
         elif hostname.startswith('x3'):
-            wbrun.config.update({'machine': 'Polaris'})
+            WBRUN.config.update({'machine': 'Polaris'})
         elif hostname.startswith('x1'):
-            wbrun.config.update({'machine': 'Sunspot'})
+            WBRUN.config.update({'machine': 'Sunspot'})
         else:
-            wbrun.config.update({'machine': hostname})
+            WBRUN.config.update({'machine': hostname})
 
 
 
@@ -110,8 +118,8 @@ def model_provider(pre_process=True, post_process=True):
     args = get_args()
     # if get_rank() == 0 and wbrun is wandb.run:
     # if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
-    if is_first_rank() and wbrun is not None and wbrun is wandb.run:
-        wbrun.config.update(vars(args))
+    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+        WBRUN.config.update(vars(args))
 
     with deepspeed.zero.Init(data_parallel_group=mpu.get_data_parallel_group(),
                              remote_device=None if args.remote_device == 'none' else args.remote_device,
@@ -153,8 +161,8 @@ def model_provider(pre_process=True, post_process=True):
             )
     # if get_rank() == 0 and wbrun is wandb.run:
     # if get_rank() == 0 and wbrun is not None and wbrun is wandb.run:
-    if is_first_rank() and wbrun is not None and wbrun is wandb.run:
-        wbrun.watch(
+    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+        WBRUN.watch(
             model,
             log='all',
             log_graph=True,
@@ -262,7 +270,6 @@ def loss_func(loss_mask, moe_loss, mos_loss, output_tensor):
     losses = output_tensor.float()
     loss_mask = loss_mask.view(-1).float()
     loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
-    
     # Reduce loss for logging.
     averaged_loss = average_losses_across_data_parallel_group([loss])
     if args.mos or args.kd:
@@ -285,7 +292,6 @@ def calculate_mos_loss(args, stu_output, teacher_model, tokens, position_ids, at
     alpha = args.kd_alpha_ce
     beta = args.kd_beta_ce
     kd_temp = args.kd_temp
-    
     if teacher_model:
         with torch.no_grad():
             if args.curriculum_learning_legacy and args.curriculum_seqlen < args.seq_length:
@@ -310,7 +316,6 @@ def forward_step(data_iterator, model):
     """Forward step."""
     args = get_args()
     timers = get_timers()
-
     # Get the batch.
     t0 = time.time()
     timers('batch-generator').start()
@@ -318,8 +323,8 @@ def forward_step(data_iterator, model):
         data_iterator)
     timers('batch-generator').stop()
     # if get_rank() == 0 and wbrun is wandb.run:
-    if is_first_rank() and wbrun is not None and wbrun is wandb.run:
-        wbrun.log({'timers/batch-generator': time.time() - t0})
+    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+        WBRUN.log({'timers/batch-generator': time.time() - t0})
 
     if args.data_efficiency_curriculum_learning:
         args.curriculum_seqlen = tokens.size()[1]
@@ -353,9 +358,8 @@ def forward_step(data_iterator, model):
             mos_loss = calculate_mos_loss(args, stu_output,
                 args.teacher_model[0], tokens, position_ids, attention_mask)
     
-    # if get_rank() == 0 and wbrun is wandb.run:
-    if is_first_rank() and wbrun is not None and wbrun is wandb.run:
-        wbrun.log({'timers/forward_step': time.time() - t0})
+    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+        WBRUN.log({'timers/forward_step': time.time() - t0})
     # Output_tensor stores the standard loss, loos_func calculates the total loss.
     return output_tensor, partial(loss_func, loss_mask, moe_loss, mos_loss)
 
@@ -363,7 +367,6 @@ def forward_step(data_iterator, model):
 def train_valid_test_datasets_provider(train_val_test_num_samples):
     """Build train, valid, and test datasets."""
     args = get_args()
-
     print_rank_0('> building train, validation, and test datasets '
                  'for GPT ...')
     train_ds, valid_ds, test_ds = build_train_valid_test_datasets(
@@ -425,11 +428,11 @@ def main():
         forward_step,
         args_defaults={'tokenizer_type': 'GPT2BPETokenizer'},
         data_post_process=data_post_process,
-        wbrun=wbrun
+        wbrun=WBRUN
     )
-    if is_first_rank() and wbrun is not None and wbrun is wandb.run:
-        wbrun.log({'pretrain_time': time.time() - t0})
-        wbrun.finish()
+    if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
+        WBRUN.log({'pretrain_time': time.time() - t0})
+        WBRUN.finish()
 
 
 if __name__ == "__main__":
