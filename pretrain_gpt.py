@@ -52,6 +52,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 HERE = Path(os.path.abspath(__file__)).parent
+# PARENT = HERE.parent
 
 
 setup_torch(
@@ -81,12 +82,14 @@ if is_first_rank():
         project='Megatron-LM',
         sync_tensorboard=True,
         dir=tensorboard_dir,
+        resume='allow',
         # dir=os.getcwd(),
         # sync_tensorboard=True,
         # group=f'experiment-{generate_id()}'
     )
     assert WBRUN is not None and WBRUN is wandb.run
-    WBRUN.log_code(HERE.as_posix())
+    wandb.run.log_code(HERE.as_posix())  # type:ignore
+    # WBRUN.log_code(HERE.as_posix())
     model_size = os.environ.get('MODEL_SIZE', None)
     if model_size is not None:
         WBRUN.config.update({'MODEL_SIZE': model_size})
