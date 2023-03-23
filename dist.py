@@ -193,15 +193,9 @@ def setup_torch_distributed(
 def setup_torch(
         backend: str = 'deepspeed',
         port: str = '2345',
-        precision: Optional[str] = 'float32',
         seed: Optional[int] = None,
 ) -> int:
     import torch
-    dtypes = {
-        'float16': torch.float16,
-        'float32': torch.float32,
-        'float64': torch.float64,
-    }
     os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     torch.backends.cudnn.deterministic = True     # type:ignore
     torch.backends.cudnn.benchmark = True         # type:ignore
@@ -218,9 +212,6 @@ def setup_torch(
     nthreads = os.environ.get('OMP_NUM_THREADS', None)
     if nthreads is not None:
         torch.set_num_threads(int(nthreads))
-    if precision is not None:
-        log.info(f'Setting default dtype: {precision}')
-        torch.set_default_dtype(dtypes.get(precision, torch.float32))
     if torch.cuda.is_available():
         torch.cuda.set_device(local_rank)
     log.info(f'Global Rank: {rank} / {world_size-1}')
