@@ -27,72 +27,10 @@ USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 # - [x] 65536 (w/ ZeRO = 3)
 SEQ_LEN=2048
 
-
-#┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-#┃                GPT MODEL SETTINGS                   ┃
-#┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-# ┏━━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 1.5B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="1.5B"
-# NLAYERS=48
-# HIDDEN=1600
-# ATEN_HEADS=25
-# GLOBAL_BATCH=128
-
-# ┏━━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 2.7B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="2.7B"
-NLAYERS=32
-HIDDEN=2560
-ATEN_HEADS=32
-GLOBAL_BATCH=512
-
-# ┏━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ ✓ GPT-3: 6.7B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="6.7B"
-# NLAYERS=32
-# HIDDEN=4096
-# ATEN_HEADS=32
-# GLOBAL_BATCH=1024
-
-# ┏━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ ✓ GPT-3: 13B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="13B"
-# NLAYERS=40
-# HIDDEN=5120
-# ATEN_HEADS=40
-# GLOBAL_BATCH=1024
-
-# ┏━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ ✓ GPT-3: 20B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="20B"
-# NLAYERS=44
-# HIDDEN=6144
-# ATEN_HEADS=64
-# GLOBAL_BATCH=1024
-
-# ┏━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 25B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="25B"
-# NLAYERS=64
-# HIDDEN=5760
-# ATEN_HEADS=64
-# GLOBAL_BATCH=1024
-
-# ┏━━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 175B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="175B"
-# NLAYERS=96
-# HIDDEN=12288
-# ATEN_HEADS=96
-# GLOBAL_BATCH=1536
+# if [[ -f ${DIR}/args.sh ]] ; then
+# shellcheck source=./model.sh
+source ${DIR}/model.sh
+# fi
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model Parallel / Pipeline Parallel ┃
