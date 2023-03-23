@@ -7,8 +7,8 @@ DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname ${DIR})
 
 DDP_IMPL="local"   # FSDP | local | torch
-USE_FLASH_ATTN=0  # 1 | 0
-USE_ACTIVATION_CHECKPOINTING=0  # 1 | 0
+USE_FLASH_ATTN=1  # 1 | 0
+USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model / Architecture settings                       ┃
@@ -31,6 +31,15 @@ SEQ_LEN=2048
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃                GPT MODEL SETTINGS                   ┃
 #┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+# ┏━━━━━━━━━━━━━━━━━━━━┓
+# ┃ GPT-3: 1.5B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="1.5B"
+# NLAYERS=48
+# HIDDEN=1600
+# ATEN_HEADS=25
+# GLOBAL_BATCH=128
+
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 2.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
@@ -93,8 +102,8 @@ GLOBAL_BATCH=512
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-MPSIZE=8
-PPSIZE=16
+MPSIZE=1
+PPSIZE=1
 MICRO_BATCH=1
 ZERO_STAGE=1  # 0 | 1 | 2 | 3
 
@@ -119,6 +128,9 @@ if [[ $USE_FLASH_ATTN == 1 ]] ; then
 fi
 if [[ $DDP_IMPL == 'FSDP' ]]; then
   RUN_STR="FSDP_${RUN_STR}"
+fi
+if [[ $USE_ACTIVATION_CHECKPOINTING == 1 ]] ;then
+  RUN_STR="actCkpt_${RUN_STR}"
 fi
 
 RUN_STR="GPT3_${RUN_STR}"
@@ -245,7 +257,6 @@ gpt_args="\
   --weight-decay 1e-2 \
   --clip-grad 1.0 \
   --lr-warmup-fraction .01 \
-  --checkpoint-activations \
   --log-interval 1 \
   --save-interval 1000 \
   --eval-interval 1000 \
@@ -253,6 +264,12 @@ gpt_args="\
   --tensorboard-dir ${TENSORBOARD_DIR} \
   --log-timers-to-tensorboard \
   --tensorboard-log-interval 1"
+
+if [[ "${USE_ACTIVATION_CHECKPOINTING}" == 1 ]]; then
+  gpt_args="\
+    --checkpoint-activations \
+    ${gpt_args}"
+fi
 
 
 if [[ "${DDP_IMPL}" != "FSDP" ]] ; then

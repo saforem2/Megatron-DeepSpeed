@@ -55,8 +55,14 @@ condaPolaris230110() {
   VENV_DIR="${PARENT}/venvs/polaris/2023-01-10/"
   if [[ -d "${VENV_DIR}" ]]; then
     echo "Found venv at: ${VENV_DIR}"
+    # shellcheck source=../venvs/polaris/2023-01-10/bin/activate
     source "${VENV_DIR}/bin/activate"
   fi
+}
+
+condaPolaris() {
+  condaPolaris230110
+  echo "USING PYTHON: $(which python3)"
 }
 
 # ┏━━━━━━━━━━┓
@@ -101,7 +107,8 @@ setupPolaris()  {
     HOSTFILE="${PBS_NODEFILE}"
     # -- MPI / Comms Setup ----------------------------------------------------
     # condaPolaris220908
-    condaPolaris230110
+    # condaPolaris230110
+    condaPolaris
     # export IBV_FORK_SAFE=1
     NRANKS=$(wc -l < "${HOSTFILE}")
     NGPU_PER_RANK=$(nvidia-smi -L | wc -l)

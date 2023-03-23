@@ -1,5 +1,6 @@
 #!/bin/bash --login
 
+HOST=$(hostname)
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname ${DIR})
 MAIN="${PARENT}/pretrain_gpt.py"
