@@ -42,7 +42,7 @@ launchJob() {
 
 singleGPU() {
   echo "\
-    Running on 1 ranks \
+    Running on 1 host \
     with 1 GPUs each \
     for a total of 1 GPUs"
   EXEC="\
@@ -50,7 +50,7 @@ singleGPU() {
     ${MAIN} \
     ${gpt_args} \
     ${ds_args}"
-  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks1-ngpu1-$TSTAMP.log"
+  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nhosts1-ngpu1-$TSTAMP.log"
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
@@ -61,13 +61,13 @@ singleGPU() {
 # ┃ Use all available GPUs a single nodes ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 fullNode() {
-  NRANKS=1
-  NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
-  NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
+  NHOSTS=1
+  NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
   echo $(hostname) > $DIR/hostfile
   echo "\
-    Running on $NRANKS ranks \
-    with $NGPU_PER_RANK GPUs each \
+    Running on $NHOSTS hosts \
+    with $NGPU_PER_HOST GPUs each \
     for a total of $NGPUS GPUs"
   EXEC="\
     ${MPI_COMMAND} \
@@ -78,7 +78,7 @@ fullNode() {
     ${MAIN} \
     ${gpt_args} \
     ${ds_args}"
-  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks${NRANKS}-ngpu${NGPUS}-$TSTAMP.log"
+  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nhosts${NHOSTS}-ngpu${NGPUS}-$TSTAMP.log"
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"
@@ -89,12 +89,12 @@ fullNode() {
 # ┃ Use all available GPUs on all available nodes ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 elasticDistributed() {
-  NRANKS=$(wc -l < "${HOSTFILE}")
-  NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
-  NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
+  NHOSTS=$(wc -l < "${HOSTFILE}")
+  NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
   echo "\
-    Running on ${NRANKS} ranks \
-    with ${NGPU_PER_RANK} GPUs each \
+    Running on ${NHOSTS} hosts \
+    with ${NGPU_PER_HOST} GPUs each \
     for a total of ${NGPUS} GPUs"
   EXEC_STR=(
     "${MPI_COMMAND}"
@@ -106,7 +106,7 @@ elasticDistributed() {
     "${ds_args}"
   )
   EXEC="${EXEC_STR[*]}"
-  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nranks${NRANKS}-ngpu${NGPUS}-$TSTAMP.log"
+  OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nhosts${NHOSTS}-ngpu${NGPUS}-$TSTAMP.log"
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
   printJobInfo | tee -a "${OUTPUT_LOG}"

@@ -2,7 +2,6 @@
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-# PARENT=$(dirname "${DIR}")
 
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃ Make sure we're not already running; if so, exit here ┃
@@ -12,7 +11,6 @@ if [ -n "${PIDS}" ]; then
   echo "Already running! Exiting!"
   exit 1
 fi
-
 
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃ source ./launch.sh                       ┃

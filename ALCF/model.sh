@@ -5,11 +5,11 @@
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3 Small:  125M ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="125M"
-NLAYERS=12
-HIDDEN=768
-ATEN_HEADS=12
-GLOBAL_BATCH=512
+# MODEL_SIZE="125M"
+# NLAYERS=12
+# HIDDEN=768
+# ATEN_HEADS=12
+# GLOBAL_BATCH=512
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 1.5B Params ┃
@@ -32,11 +32,11 @@ GLOBAL_BATCH=512
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 2.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="2.7B"
-# NLAYERS=32
-# HIDDEN=2560
-# ATEN_HEADS=32
-# GLOBAL_BATCH=512
+MODEL_SIZE="2.7B"
+NLAYERS=32
+HIDDEN=2560
+ATEN_HEADS=32
+GLOBAL_BATCH=512
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ ✓ GPT-3: 6.7B Params ┃

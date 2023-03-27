@@ -25,7 +25,7 @@ USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 # - [✓] 16384 (w/ ZeRO = 3)
 # - [✓] 32768 (w/ ZeRO = 3)
 # - [x] 65536 (w/ ZeRO = 3)
-SEQ_LEN=2048
+SEQ_LEN=32768
 
 # if [[ -f ${DIR}/args.sh ]] ; then
 # shellcheck source=./model.sh
@@ -43,7 +43,7 @@ source ${DIR}/model.sh
 MPSIZE=1
 PPSIZE=1
 MICRO_BATCH=1
-ZERO_STAGE=1  # 0 | 1 | 2 | 3
+ZERO_STAGE=3  # 0 | 1 | 2 | 3
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃

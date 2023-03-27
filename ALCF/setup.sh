@@ -75,9 +75,9 @@ setupThetaGPU() {
     # -- Python / Conda setup -------------------------------------------------
     condaThetaGPU
     # -- MPI / Comms Setup ----------------------------------------------------
-    NRANKS=$(wc -l < "${HOSTFILE}")
-    NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
-    NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
+    NHOSTS=$(wc -l < "${HOSTFILE}")
+    NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+    NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
     NVME_PATH="/raid/scratch/"
     MPI_COMMAND=$(which mpirun)
     # export PATH="${CONDA_PREFIX}/bin:${PATH}"
@@ -92,7 +92,7 @@ setupThetaGPU() {
       -x LD_LIBRARY_PATH"
     MPI_ELASTIC="\
       -n ${NGPUS} \
-      -npernode ${NGPU_PER_RANK}"
+      -npernode ${NGPU_PER_HOST}"
   else
     echo "Unexpected hostname: $(hostname)"
   fi
@@ -110,9 +110,9 @@ setupPolaris()  {
     # condaPolaris230110
     condaPolaris
     # export IBV_FORK_SAFE=1
-    NRANKS=$(wc -l < "${HOSTFILE}")
-    NGPU_PER_RANK=$(nvidia-smi -L | wc -l)
-    NGPUS=$((${NRANKS}*${NGPU_PER_RANK}))
+    NHOSTS=$(wc -l < "${HOSTFILE}")
+    NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+    NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
     MPI_COMMAND=$(which mpiexec)
     NVME_PATH="/local/scratch/"
     MPI_DEFAULTS="\
@@ -121,7 +121,7 @@ setupPolaris()  {
       --hostfile ${HOSTFILE}"
     MPI_ELASTIC="\
       -n ${NGPUS} \
-      --ppn ${NGPU_PER_RANK}"
+      --ppn ${NGPU_PER_HOST}"
   else
     echo "Unexpected hostname: $(hostname)"
   fi
@@ -162,7 +162,7 @@ setup() {
     echo "Unexpected hostname $(hostname)"
   fi
   export NODE_RANK=0
-  export NNODES=$NRANKS
-  export GPUS_PER_NODE=$NGPU_PER_RANK
+  export NNODES=$NHOSTS
+  export GPUS_PER_NODE=$NGPU_PER_HOST
   export WORLD_SIZE=$NGPUS
 }
