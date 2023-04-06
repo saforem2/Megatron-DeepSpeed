@@ -295,6 +295,7 @@ class Timers:
         if wbrun is not None and wbrun is wandb.run:
             # wbrun.log({'timers': data})
             wbrun.log(data)
+        # wandb.log({'timers': data})
 
     def log(self, names, normalizer=1.0, reset=True, wbrun: Optional[Any] = None):
         """Log a group of timers."""
@@ -311,8 +312,14 @@ class Timers:
             if torch.distributed.get_rank() == (
                     torch.distributed.get_world_size() - 1):
                 print(string, flush=True)
+                try:
+                    wandb.log({'timers': data})
+                except Exception:
+                    pass
         else:
             print(string, flush=True)
+            try:
+                wandb.log({'timers': data})
+            except Exception:
+                pass
 
-        if wbrun is not None and wbrun is wandb.run:
-            wbrun.log(data)
