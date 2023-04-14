@@ -1,4 +1,4 @@
-#!/bin/bash -l
+#!/bin/bash --login
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)

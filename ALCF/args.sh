@@ -4,33 +4,16 @@ USER=$(whoami)
 # HOST=$(hostname)
 
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-PARENT=$(dirname ${DIR})
+PARENT=$(dirname "${DIR}")
 
 DDP_IMPL="local"   # FSDP | local | torch
-USE_FLASH_ATTN=1  # 1 | 0
+USE_FLASH_ATTN=0  # 1 | 0
 USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 
-# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ Model / Architecture settings                       ┃
-# ┃ --------------------------------------------------- ┃
-# ┃ GPT-3 models use 2K sequence length/context window  ┃
-# ┃ The "GPT-3 XXX" below are configs from GPT-3 paper  ┃
-# ┃ https://arxiv.org/abs/2005.14165, choose based on   ┃
-# ┃ your desired model size or build your own configs   ┃
-# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-# TESTED:
-# - [✓] 2048
-# - [✓] 4096
-# - [✓] 8192
-# - [✓] 16384 (w/ ZeRO = 3)
-# - [✓] 32768 (w/ ZeRO = 3)
-# - [x] 65536 (w/ ZeRO = 3)
-SEQ_LEN=32768
+SEQ_LEN=1024
 
-# if [[ -f ${DIR}/args.sh ]] ; then
 # shellcheck source=./model.sh
-source ${DIR}/model.sh
-# fi
+source "${DIR}/model.sh"
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model Parallel / Pipeline Parallel ┃
@@ -40,15 +23,20 @@ source ${DIR}/model.sh
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-MPSIZE=1
-PPSIZE=1
+MPSIZE=4
+PPSIZE=2
 MICRO_BATCH=1
-ZERO_STAGE=3  # 0 | 1 | 2 | 3
+ZERO_STAGE=1  # 0 | 1 | 2 | 3
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
 # ┗━━━━━━━━━━━━┛
-DATA_PATH="${PARENT}/dataset/BookCorpusDataset_text_document"
+# DATA_PATH="${PARENT}/dataset/BookCorpusDataset_text_document"
+# DATA_PATH="/lus/eagle/projects/datascience/venkatv/datasets/pile_bin/pile_text_document"
+# DATA_PATH="/lus/theta-fs0/projects/datascience/vsastry/genslm_megratron_preprocess"
+# DATA_PATH=/lus/theta-fs0/projects/datascience/vsastry/genslm_megratron_preprocess/genslm-subsample_sequence_document
+# DATA_PATH=/lus/grand/projects/datascience/foremans/genslm_megatron_preprocess/genslm-subsample_sequence_document/genslm-subsample_sequence_document
+DATA_PATH=/lus/grand/projects/datascience/vsastry/genslm_subsample_200k_sequence_document/genslm_subsample_200k_sequence_document
 VOCAB_FILE="${PARENT}/dataset/gpt2-vocab.json"
 MERGE_FILE="${PARENT}/dataset/gpt2-merges.txt"
 
@@ -105,7 +93,7 @@ echo "OUTPUT TO: ${OUTPUT_DIR}"
 # ┃ DeepSpeed Config ┃
 # ┗━━━━━━━━━━━━━━━━━━┛
 DS_CONFIG=${PARENT}/ds_config-gpt.json
-cat <<EOT > $DS_CONFIG
+cat <<EOT > "$DS_CONFIG"
 {
   "train_batch_size" : $GLOBAL_BATCH,
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
@@ -140,6 +128,12 @@ cat <<EOT > $DS_CONFIG
     "detailed": true,
     "output_file": null
   },
+  "comms_logger": {
+    "enabled": true,
+    "verbose": false,
+    "prof_all": false,
+    "debug": false
+  },
   "wandb": {
     "enabled": true,
     "project": "megatron-LM"
@@ -156,9 +150,10 @@ if [[ "${DDP_IMPL}" != "FSDP" ]] ; then
   ds_args=" --deepspeed_mpi ${ds_args}"
   ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
   ds_args=" --zero-stage=$ZERO_STAGE ${ds_args}"
-  # ds_args=" --pipeline-model-parallel-size ${PPSIZE} ${ds_args}"
   if [[ "${PPSIZE}" == 1 ]]; then
     ds_args="--no-pipeline-parallel ${ds_args}"
+  else
+    ds_args=" --pipeline-model-parallel-size ${PPSIZE} ${ds_args}"
   fi
   if [[ "${USE_ACTIVATION_CHECKPOINTING}" == 1 ]]; then
     ds_args=" --deepspeed-activation-checkpointing ${ds_args}"

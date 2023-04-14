@@ -2,7 +2,7 @@
 
 HOST=$(hostname)
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-PARENT=$(dirname ${DIR})
+PARENT=$(dirname "${DIR}")
 MAIN="${PARENT}/pretrain_gpt.py"
 
 ARGS_FILE="${DIR}/args.sh"
@@ -28,8 +28,8 @@ printJobInfo() {
   echo "Job running in: ${DIR}"
   echo "Training GPT-3 with ${MODEL_SIZE} parameters"
   echo "Writing logs to: ${OUTPUT_DIR}"
-  echo 'to view output: tail -f $(tail -1 ${PARENT}/logfiles)'
-  echo "i.e. tail -f $(tail -1 $PARENT/logfiles)"
+  echo 'to view output: tail -f $(tail -1 logfiles)'
+  echo "i.e. tail -f $(tail -1 "${PARENT}"/logfiles)"
 }
 
 launchJob() {
@@ -64,7 +64,7 @@ fullNode() {
   NHOSTS=1
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
   NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
-  echo $(hostname) > $DIR/hostfile
+  hostname > $DIR/hostfile
   echo "\
     Running on $NHOSTS hosts \
     with $NGPU_PER_HOST GPUs each \

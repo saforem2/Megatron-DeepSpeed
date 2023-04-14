@@ -124,11 +124,13 @@ def model_provider(pre_process=True, post_process=True):
     if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
         WBRUN.config.update(vars(args))
 
-    with deepspeed.zero.Init(data_parallel_group=mpu.get_data_parallel_group(),
-                             remote_device=None if args.remote_device == 'none' else args.remote_device,
-                             config_dict_or_path=args.deepspeed_config,
-                             enabled=args.zero_stage == 3,
-                             mpu=mpu):
+    with deepspeed.zero.Init(
+            data_parallel_group=mpu.get_data_parallel_group(),
+            remote_device=None if args.remote_device == 'none' else args.remote_device,
+            config_dict_or_path=args.deepspeed_config,
+            enabled=args.zero_stage == 3,
+            mpu=mpu
+    ):
         if args.deepspeed and not args.no_pipeline_parallel:
             model = GPTModelPipe(
                 num_tokentypes=0,
@@ -423,6 +425,7 @@ def git_ds_info():
 
 # @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main():
+    import deepspeed.comm as dist
     git_ds_info()
     t0 = time.time()
     pretrain(
@@ -433,6 +436,7 @@ def main():
         data_post_process=data_post_process,
         wbrun=WBRUN
     )
+    dist.log_summary()
     if is_first_rank() and WBRUN is not None and WBRUN is wandb.run:
         WBRUN.log({'pretrain_time': time.time() - t0})
         WBRUN.finish()
@@ -441,5 +445,4 @@ def main():
 if __name__ == "__main__":
     import wandb
     wandb.require(experiment='service')
-
     main()

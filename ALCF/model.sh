@@ -1,7 +1,15 @@
 #!/bin/bash --login
-#┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-#┃                GPT MODEL SETTINGS                   ┃
-#┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+#┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+#┃                 GPT MODEL SETTINGS                    ┃
+#┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ Model / Architecture settings                        ┃
+# ┃ ---------------------------------------------------- ┃
+# ┃ GPT-3 models use 2K sequence length/context window   ┃
+# ┃ The "GPT-3 XXX" below are configs from GPT-3 paper   ┃
+# ┃ https://arxiv.org/abs/2005.14165, choose based on    ┃
+# ┃ your desired model size or build your own configs    ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3 Small:  125M ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
@@ -32,11 +40,12 @@
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 2.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="2.7B"
-NLAYERS=32
-HIDDEN=2560
-ATEN_HEADS=32
-GLOBAL_BATCH=512
+# MODEL_SIZE="2.7B"
+# NLAYERS=32
+# HIDDEN=2560
+# ATEN_HEADS=32
+# # GLOBAL_BATCH=512
+# GLOBAL_BATCH=8
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ ✓ GPT-3: 6.7B Params ┃
@@ -54,7 +63,16 @@ GLOBAL_BATCH=512
 # NLAYERS=40
 # HIDDEN=5120
 # ATEN_HEADS=40
-# GLOBAL_BATCH=1024
+# GLOBAL_BATCH=64
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ ✓ GPT-3: 18.4B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="18.4B"
+# NLAYERS=40
+# HIDDEN=6144
+# ATEN_HEADS=48
+# GLOBAL_BATCH=8
 
 # ┏━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ ✓ GPT-3: 20B Params ┃
@@ -66,13 +84,31 @@ GLOBAL_BATCH=512
 # GLOBAL_BATCH=1024
 
 # ┏━━━━━━━━━━━━━━━━━━━┓
+# ┃ GPT-3: 30B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="30B"
+# NLAYERS=64
+# HIDDEN=6144
+# ATEN_HEADS=64
+# GLOBAL_BATCH=8
+
+# ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 25B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="25B"
-# NLAYERS=64
-# HIDDEN=5760
-# ATEN_HEADS=64
-# GLOBAL_BATCH=1024
+MODEL_SIZE="25B"
+NLAYERS=64
+HIDDEN=5760
+ATEN_HEADS=64
+GLOBAL_BATCH=16
+
+# ┏━━━━━━━━━━━━━━━━━━━━┓
+# ┃ GPT-3: 145B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━━┛
+# MODEL_SIZE="145B"
+# NLAYERS=80
+# HIDDEN=12288
+# ATEN_HEADS=96
+# GLOBAL_BATCH=1
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 175B Params ┃

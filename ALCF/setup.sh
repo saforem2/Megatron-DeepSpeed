@@ -20,6 +20,7 @@ condaThetaGPU230111() {
   VENV_DIR="${PARENT}/venvs/thetaGPU/2023-01-11-deepspeed"
   if [[ -d "${VENV_DIR}" ]] ; then
     echo "Found venv at: ${VENV_DIR}"
+    # shellcheck source='../venvs/thetaGPU/2023-01-10/bin/activate'
     source "${VENV_DIR}/bin/activate"
   fi
 }
