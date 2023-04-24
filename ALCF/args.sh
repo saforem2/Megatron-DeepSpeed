@@ -15,6 +15,15 @@ SEQ_LEN=1024
 # shellcheck source=./model.sh
 source "${DIR}/model.sh"
 
+# if [[ $MODEL_SIZE == "25B" ]] ; then
+#   echo "Turning off Flash Attention for ${MODEL_SIZE} model"
+#   USE_FLASH_ATTN=0
+# else
+#   echo "Using flash attention for ${MODEL_SIZE} model"
+#   USE_FLASH_ATTN=1
+# fi
+
+
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model Parallel / Pipeline Parallel ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -23,16 +32,30 @@ source "${DIR}/model.sh"
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-MPSIZE=4
-PPSIZE=2
-MICRO_BATCH=1
-ZERO_STAGE=1  # 0 | 1 | 2 | 3
+NHOSTS=$(wc -l < "${PBS_NODEFILE}")
+export MPSIZE=4
+export PPSIZE=1
+export MICRO_BATCH=4
+export ZERO_STAGE=1  # 0 | 1 | 2 | 3
+export NHOSTS="$NHOSTS"
+export GLOBAL_BATCH_MULTIPLIER=1024
+
+echo "Setting GLOBAL_BATCH = GLOBAL_BATCH_MULTIPLIER * NHOSTS"
+echo "Explicitly: $GLOBAL_BATCH_MULTIPLIER * $NHOSTS"
+GLOBAL_BATCH="4*${NHOSTS}"
+
+echo "Rescaling GLOBAL_BATCH := (GLOBAL_BATCH * MICRO_BATCH) = ({$GLOBAL_BATCH} * ${MICRO_BATCH})"
+GLOBAL_BATCH=$((${GLOBAL_BATCH}*${MICRO_BATCH}))
+
+export GLOBAL_BATCH="${GLOBAL_BATCH}"
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
 # ┗━━━━━━━━━━━━┛
-# DATA_PATH="${PARENT}/dataset/BookCorpusDataset_text_document"
+# - [ ] TODO: 1T with Pile data
 # DATA_PATH="/lus/eagle/projects/datascience/venkatv/datasets/pile_bin/pile_text_document"
+# ------------------------------------------------------------------------------------------------
+# DATA_PATH="${PARENT}/dataset/BookCorpusDataset_text_document"
 # DATA_PATH="/lus/theta-fs0/projects/datascience/vsastry/genslm_megratron_preprocess"
 # DATA_PATH=/lus/theta-fs0/projects/datascience/vsastry/genslm_megratron_preprocess/genslm-subsample_sequence_document
 # DATA_PATH=/lus/grand/projects/datascience/foremans/genslm_megatron_preprocess/genslm-subsample_sequence_document/genslm-subsample_sequence_document

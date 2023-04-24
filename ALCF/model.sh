@@ -63,7 +63,7 @@
 # NLAYERS=40
 # HIDDEN=5120
 # ATEN_HEADS=40
-# GLOBAL_BATCH=64
+# GLOBAL_BATCH=128
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ ✓ GPT-3: 18.4B Params ┃
@@ -84,6 +84,23 @@
 # GLOBAL_BATCH=1024
 
 # ┏━━━━━━━━━━━━━━━━━━━┓
+# ┃ GPT-3: 25B Params ┃
+# ┗━━━━━━━━━━━━━━━━━━━┛
+MODEL_SIZE="25B"
+NLAYERS=64
+# ------------
+HIDDEN=5760  # DEFAULT
+ATEN_HEADS=64
+# ------------
+# HIDDEN=5888    # headdim = 5888 / 46 = 128
+# ATEN_HEADS=46
+# ------------
+# HIDDEN=5760  # headdim = 5760 / 90 = 64
+# ATEN_HEADS=90
+# ------------
+# GLOBAL_BATCH=
+
+# ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 30B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━┛
 # MODEL_SIZE="30B"
@@ -91,15 +108,6 @@
 # HIDDEN=6144
 # ATEN_HEADS=64
 # GLOBAL_BATCH=8
-
-# ┏━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 25B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="25B"
-NLAYERS=64
-HIDDEN=5760
-ATEN_HEADS=64
-GLOBAL_BATCH=16
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 145B Params ┃

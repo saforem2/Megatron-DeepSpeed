@@ -1,4 +1,6 @@
 #!/bin/bash --login
+#
+cd ${PBS_O_WORKDIR}
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
@@ -16,7 +18,8 @@ fi
 #┃ source ./launch.sh                       ┃
 #┃ which then sources ./{args.sh,setup.sh}  ┃
 #┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-LAUNCH_FILE="${DIR}/launch.sh"
+# LAUNCH_FILE="${DIR}/launch.sh"
+LAUNCH_FILE="/lus/grand/projects/datascience/foremans/locations/polaris/projects/saforem2/Megatron-DeepSpeed/ALCF/launch.sh"
 if [[ -f "${LAUNCH_FILE}" ]]; then
   echo "source-ing ${LAUNCH_FILE}"
   # shellcheck source=./launch.sh
@@ -29,6 +32,4 @@ fi
 setup
 # singleGPU "$@" 2>&1 &
 # fullNode "$@" 2>&1 &
-elasticDistributed "$@" 2>&1 &
-PID=$!
-wait $PID
+elasticDistributed "$@"
