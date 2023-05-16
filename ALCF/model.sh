@@ -89,16 +89,17 @@
 MODEL_SIZE="25B"
 NLAYERS=64
 # ------------
-HIDDEN=5760  # DEFAULT
-ATEN_HEADS=64
+# HIDDEN=5760  # DEFAULT (no flash attn)
+# ATEN_HEADS=64
 # ------------
 # HIDDEN=5888    # headdim = 5888 / 46 = 128
 # ATEN_HEADS=46
+# -----------------
+# -- FLASH ATTN --
+# headdim = 5760 / 80 = 72
+HIDDEN=5760
+ATEN_HEADS=80
 # ------------
-# HIDDEN=5760  # headdim = 5760 / 90 = 64
-# ATEN_HEADS=90
-# ------------
-# GLOBAL_BATCH=
 
 # ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 30B Params ┃
@@ -132,4 +133,4 @@ export MODEL_SIZE="${MODEL_SIZE}"
 export NLAYERS="${NLAYERS}"
 export HIDDEN="${HIDDEN}"
 export ATEN_HEADS="${ATEN_HEADS}"
-export GLOBAL_BATCH="${GLOBAL_BATCH}"
+# export GLOBAL_BATCH="${GLOBAL_BATCH}"
