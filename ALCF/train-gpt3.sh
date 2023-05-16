@@ -1,7 +1,16 @@
 #!/bin/bash --login
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
-DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+  SOURCE=$(readlink "$SOURCE")
+  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+
 
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 #┃ Make sure we're not already running; if so, exit here ┃
@@ -29,6 +38,8 @@ fi
 setup
 # singleGPU "$@" 2>&1 &
 # fullNode "$@" 2>&1 &
+TORCH_VERSION=$(python3 -c 'import torch; print(torch.__version__)')
+export TORCH_VERSION=$TORCH_VERSION
 elasticDistributed "$@" 2>&1 &
 PID=$!
 wait $PID
