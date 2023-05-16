@@ -1,7 +1,62 @@
 #!/bin/bash --login
 #
-DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+  SOURCE=$(readlink "$SOURCE")
+  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 PARENT=$(dirname "${DIR}")
+
+thetagpuMPI() {
+  NHOSTS=$(wc -l < "${COBALT_NODEFILE}")
+  NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  NVME_PATH="/raid/scratch/"
+  MPI_COMMAND=$(which mpirun)
+  # export PATH="${CONDA_PREFIX}/bin:${PATH}"
+  MPI_DEFAULTS="\
+    --hostfile ${HOSTFILE} \
+    -x CFLAGS \
+    -x LDFLAGS \
+    -x http_proxy \
+    -x PYTHONUSERBASE \
+    -x https_proxy \
+    -x PATH \
+    -x LD_LIBRARY_PATH"
+  MPI_ELASTIC="\
+    -n ${NGPUS} \
+    -npernode ${NGPU_PER_HOST}"
+}
+
+polarisMPI() {
+  NHOSTS=$(wc -l < "${PBS_NODEFILE}")
+  NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
+  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  MPI_COMMAND=$(which mpiexec)
+  NVME_PATH="/local/scratch/"
+  MPI_DEFAULTS="\
+    --envall \
+    --verbose \
+    --hostfile ${HOSTFILE}"
+  MPI_ELASTIC="\
+    -n ${NGPUS} \
+    --ppn ${NGPU_PER_HOST}"
+}
+
+setupMPI() {
+  if [[ $(hostname) == theta* ]]; then
+    echo "Setting up MPI on ThetaGPU from $(hostname)"
+    thetagpuMPI
+  elif [[ $(hostname) == x* ]]; then
+    echo "Setting up MPI on Polaris from $(hostname)"
+    polarisMPI
+  else
+    echo "Unexpected hostname $(hostname)"
+  fi
+}
 
 condaThetaGPU220701() {
   module load conda/2022-07-01 ; conda activate base
@@ -75,25 +130,7 @@ setupThetaGPU() {
     HOSTFILE="${COBALT_NODEFILE}"
     # -- Python / Conda setup -------------------------------------------------
     condaThetaGPU
-    # -- MPI / Comms Setup ----------------------------------------------------
-    NHOSTS=$(wc -l < "${HOSTFILE}")
-    NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-    NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
-    NVME_PATH="/raid/scratch/"
-    MPI_COMMAND=$(which mpirun)
-    # export PATH="${CONDA_PREFIX}/bin:${PATH}"
-    MPI_DEFAULTS="\
-      --hostfile ${HOSTFILE} \
-      -x CFLAGS \
-      -x LDFLAGS \
-      -x http_proxy \
-      -x PYTHONUSERBASE \
-      -x https_proxy \
-      -x PATH \
-      -x LD_LIBRARY_PATH"
-    MPI_ELASTIC="\
-      -n ${NGPUS} \
-      -npernode ${NGPU_PER_HOST}"
+    thetagpuMPI
   else
     echo "Unexpected hostname: $(hostname)"
   fi
@@ -110,19 +147,8 @@ setupPolaris()  {
     # condaPolaris220908
     # condaPolaris230110
     condaPolaris
+    polarisMPI
     # export IBV_FORK_SAFE=1
-    NHOSTS=$(wc -l < "${HOSTFILE}")
-    NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-    NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
-    MPI_COMMAND=$(which mpiexec)
-    NVME_PATH="/local/scratch/"
-    MPI_DEFAULTS="\
-      --envall \
-      --verbose \
-      --hostfile ${HOSTFILE}"
-    MPI_ELASTIC="\
-      -n ${NGPUS} \
-      --ppn ${NGPU_PER_HOST}"
   else
     echo "Unexpected hostname: $(hostname)"
   fi
@@ -166,4 +192,7 @@ setup() {
   export NNODES=$NHOSTS
   export GPUS_PER_NODE=$NGPU_PER_HOST
   export WORLD_SIZE=$NGPUS
+  export NGPUS="${NGPUS}"
+  export NHOSTS="${NHOSTS}"
+  export NGPU_PER_HOST="${NGPU_PER_HOST}"
 }
