@@ -1,9 +1,25 @@
 #!/bin/bash --login
 
 HOST=$(hostname)
-DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+  SOURCE=$(readlink "$SOURCE")
+  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 PARENT=$(dirname "${DIR}")
 MAIN="${PARENT}/pretrain_gpt.py"
+
+# SETUP_FILE="${DIR}/setup.sh"
+# if [[ -f "${SETUP_FILE}" ]]; then
+#   echo "source-ing ${SETUP_FILE}"
+#   # shellcheck source=./setup.sh
+#   source "${SETUP_FILE}"
+# else
+#   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
+# fi
 
 ARGS_FILE="${DIR}/args.sh"
 if [[ -f "${ARGS_FILE}" ]]; then
@@ -12,15 +28,6 @@ if [[ -f "${ARGS_FILE}" ]]; then
   source "${ARGS_FILE}"
 else
   echo "ERROR: UNABLE TO SOURCE ${ARGS_FILE}"
-fi
-
-SETUP_FILE="${DIR}/setup.sh"
-if [[ -f "${SETUP_FILE}" ]]; then
-  echo "source-ing ${SETUP_FILE}"
-  # shellcheck source=./setup.sh
-  source "${SETUP_FILE}"
-else
-  echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
 fi
 
 printJobInfo() {
