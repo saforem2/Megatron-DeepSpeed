@@ -29,15 +29,6 @@
 # GLOBAL_BATCH=128
 
 # ┏━━━━━━━━━━━━━━━━━━━━┓
-# ┃ GPT-3: 1.5B Params ┃
-# ┗━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="1.5B"
-# NLAYERS=48
-# HIDDEN=1600
-# ATEN_HEADS=25
-# GLOBAL_BATCH=128
-
-# ┏━━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 2.7B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━┛
 # MODEL_SIZE="2.7B"
@@ -59,10 +50,10 @@
 # ┏━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ ✓ GPT-3: 13B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━┛
-# MODEL_SIZE="13B"
-# NLAYERS=40
-# HIDDEN=5120
-# ATEN_HEADS=40
+MODEL_SIZE="13B"
+NLAYERS=40
+HIDDEN=5120
+ATEN_HEADS=40
 # GLOBAL_BATCH=128
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -86,8 +77,8 @@
 # ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ GPT-3: 25B Params ┃
 # ┗━━━━━━━━━━━━━━━━━━━┛
-MODEL_SIZE="25B"
-NLAYERS=64
+# MODEL_SIZE="25B"
+# NLAYERS=64
 # ------------
 # HIDDEN=5760  # DEFAULT (no flash attn)
 # ATEN_HEADS=64
@@ -97,8 +88,8 @@ NLAYERS=64
 # -----------------
 # -- FLASH ATTN --
 # headdim = 5760 / 80 = 72
-HIDDEN=5760
-ATEN_HEADS=80
+# HIDDEN=5760
+# ATEN_HEADS=80
 # ------------
 
 # ┏━━━━━━━━━━━━━━━━━━━┓

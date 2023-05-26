@@ -56,12 +56,6 @@ USER=$(whoami)
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 PARENT=$(dirname "$DIR")
 
-DDP_IMPL="local"   # FSDP | local | torch
-USE_FLASH_ATTN=1  # 1 | 0
-USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
-
-SEQ_LEN=1024
-
 # if [[ $MODEL_SIZE == "25B" ]] ; then
 #   echo "Turning off Flash Attention for ${MODEL_SIZE} model"
 #   USE_FLASH_ATTN=0
@@ -82,12 +76,16 @@ SEQ_LEN=1024
 # PPSIZE=16
 # ----------
 # NHOSTS=$(wc -l < "${PBS_NODEFILE}")
-export MPSIZE=2
-export PPSIZE=1
-export MICRO_BATCH=8
-export ZERO_STAGE=2  # 0 | 1 | 2 | 3
+export DDP_IMPL="local"   # FSDP | local | torch
+export USE_FLASH_ATTN=1  # 1 | 0
+export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
+export SEQ_LEN=1024
+export MPSIZE=4
+export PPSIZE=2
+export MICRO_BATCH=1
+export ZERO_STAGE=0  # 0 | 1 | 2 | 3
 export NHOSTS="$NHOSTS"
-export GRADIENT_ACCUMULATION_STEPS=16
+export GRADIENT_ACCUMULATION_STEPS=1
 # export GLOBAL_BATCH_MULTIPLIER=1024
 # export GLOBAL_BATCH="${MICRO_BATCH}*${NGPUS}"
 
@@ -99,6 +97,8 @@ export GRADIENT_ACCUMULATION_STEPS=16
 # export WORLD_SIZE="${WORLD_SIZE}"
 # echo "WORLD_SIZE: ${WORLD_SIZE}"
 
+echo "NHOSTS: ${NHOSTS}"
+echo "NGPUS: ${NGPUS}"
 GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
 GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE ))
 export GLOBAL_BATCH="$GLOBAL_BATCH"
