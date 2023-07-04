@@ -1,7 +1,6 @@
 #!/bin/bash --login
 
 HOST=$(hostname)
-# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
   DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
@@ -11,15 +10,6 @@ done
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 PARENT=$(dirname "${DIR}")
 MAIN="${PARENT}/pretrain_gpt.py"
-
-# SETUP_FILE="${DIR}/setup.sh"
-# if [[ -f "${SETUP_FILE}" ]]; then
-#   echo "source-ing ${SETUP_FILE}"
-#   # shellcheck source=./setup.sh
-#   source "${SETUP_FILE}"
-# else
-#   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
-# fi
 
 ARGS_FILE="${DIR}/args.sh"
 if [[ -f "${ARGS_FILE}" ]]; then
@@ -34,17 +24,21 @@ printJobInfo() {
   echo "Job started at: ${TSTAMP} on $(hostname)"
   echo "Job running in: ${DIR}"
   echo "Training GPT-3 with ${MODEL_SIZE} parameters"
-  echo "Writing logs to: ${OUTPUT_DIR}"
+  echo "Writing logs in: ${OUTPUT_DIR}"
+  echo "LOGFILE: ${OUTPUT_LOG}"
   echo 'to view output: tail -f $(tail -1 logfiles)'
   echo "i.e. tail -f $(tail -1 "${PARENT}"/logfiles)"
 }
 
 launchJob() {
+  echo "OUTPUT LOG: ${OUTPUT_LOG}"
   echo "using: $(which python3)" | tee -a "${OUTPUT_LOG}"
   printJobInfo | tee -a "${OUTPUT_LOG}"
   echo EXEC="${EXEC}" | tee -a "${OUTPUT_LOG}"
   echo "Writing logs to: ${OUTPUT_LOG}" | tee -a "${OUTPUT_LOG}"
-  ${EXEC} "$@" # >> "${OUTPUT_LOG}" 2>&1 &
+  ${EXEC} "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  PID=$!
+  wait $PID
 }
 
 singleGPU() {
@@ -60,6 +54,18 @@ singleGPU() {
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nhosts1-ngpu1-$TSTAMP.log"
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
+  echo "--------------------------------" | tee -a "${OUTPUT_LOG}"
+  echo "GLOBAL_BATCH=${GLOBAL_BATCH} " | tee -a "${OUTPUT_LOG}"
+  echo "GLOBAL_BATCH=${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS} / (${MPSIZE} * ${PPSIZE})" | tee -a "${OUTPUT_LOG}"
+  echo "--------------------------------" | tee -a "${OUTPUT_LOG}"
+  echo "WORLD_SIZE: ${WORLD_SIZE}" | tee -a "${OUTPUT_LOG}"
+  echo "NHOSTS: ${NHOSTS}" | tee -a "${OUTPUT_LOG}"
+  echo "NGPUS: ${NGPUS}" | tee -a "${OUTPUT_LOG}"
+  echo "MICRO_BATCH: ${MICRO_BATCH}" | tee -a "${OUTPUT_LOG}"
+  echo "GLOBAL_BATCH: ${GLOBAL_BATCH}" | tee -a "${OUTPUT_LOG}"
+  echo "GRADIENT_ACCUMULATION_STEPS: ${GRADIENT_ACCUMULATION_STEPS}" | tee -a "${OUTPUT_LOG}"
+  echo "TPSIZE: ${MPSIZE}" | tee -a "${OUTPUT_LOG}"
+  echo "PPSIZE: ${PPSIZE}" | tee -a "${OUTPUT_LOG}"
   printJobInfo | tee -a "${OUTPUT_LOG}"
   launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
 }
@@ -70,8 +76,8 @@ singleGPU() {
 fullNode() {
   NHOSTS=1
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
-  hostname > $DIR/hostfile
+  NGPUS=$((NHOSTS * NGPU_PER_HOST))
+  hostname > "$DIR/hostfile"
   echo "\
     Running on $NHOSTS hosts \
     with $NGPU_PER_HOST GPUs each \
@@ -98,7 +104,7 @@ fullNode() {
 elasticDistributed() {
   NHOSTS=$(wc -l < "${HOSTFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  NGPUS=$((NHOSTS * NGPU_PER_HOST))
   echo "\
     Running on ${NHOSTS} hosts \
     with ${NGPU_PER_HOST} GPUs each \
@@ -115,7 +121,26 @@ elasticDistributed() {
   EXEC="${EXEC_STR[*]}"
   OUTPUT_LOG="${OUTPUT_DIR}/logs/$USER-$HOST-nhosts${NHOSTS}-ngpu${NGPUS}-$TSTAMP.log"
   mkdir -p "$(dirname "${OUTPUT_LOG}")"
+  echo "*************************************************"
+  echo "Writing logs to: ${OUTPUT_LOG}"
+  echo "*************************************************"
   echo "${OUTPUT_LOG}" >> "${PARENT}/logfiles"
+  echo "${OUTPUT_LOG}" >> "${PARENT}/logs/latest"
+  echo "WORLD_SIZE: ${WORLD_SIZE}" | tee -a "${OUTPUT_LOG}"
+  echo "NHOSTS: ${NHOSTS}" | tee -a "${OUTPUT_LOG}"
+  echo "NGPUS: ${NGPUS}" | tee -a "${OUTPUT_LOG}"
+  echo "TPSIZE: ${MPSIZE}" | tee -a "${OUTPUT_LOG}"
+  echo "PPSIZE: ${PPSIZE}" | tee -a "${OUTPUT_LOG}"
+  echo "MICRO_BATCH: ${MICRO_BATCH}" | tee -a "${OUTPUT_LOG}"
+  echo "GRADIENT_ACCUMULATION_STEPS: ${GRADIENT_ACCUMULATION_STEPS}" | tee -a "${OUTPUT_LOG}"
+  echo "--------------------------------" | tee -a "${OUTPUT_LOG}"
+  echo "GLOBAL_BATCH=${GLOBAL_BATCH} " | tee -a "${OUTPUT_LOG}"
+  echo "GLOBAL_BATCH=${NGPUS} * ${MICRO_BATCH} * ${GRADIENT_ACCUMULATION_STEPS} / (${MPSIZE} * ${PPSIZE})" | tee -a "${OUTPUT_LOG}"
+  echo "--------------------------------" | tee -a "${OUTPUT_LOG}"
+  # mkdir -p dirname "${PARENT}/logs/latest"
   printJobInfo | tee -a "${OUTPUT_LOG}"
+  # launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
   launchJob "$@" >> "${OUTPUT_LOG}" 2>&1 &
+  PID=$!
+  wait $PID
 }
