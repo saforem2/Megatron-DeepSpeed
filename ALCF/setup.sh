@@ -1,6 +1,5 @@
 #!/bin/bash --login
 #
-# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
   DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
@@ -13,7 +12,7 @@ PARENT=$(dirname "${DIR}")
 thetagpuMPI() {
   NHOSTS=$(wc -l < "${COBALT_NODEFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  NGPUS=$((NHOSTS * NGPU_PER_HOST))
   NVME_PATH="/raid/scratch/"
   MPI_COMMAND=$(which mpirun)
   # export PATH="${CONDA_PREFIX}/bin:${PATH}"
@@ -34,7 +33,7 @@ thetagpuMPI() {
 polarisMPI() {
   NHOSTS=$(wc -l < "${PBS_NODEFILE}")
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
-  NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+  NGPUS=$((NHOSTS * NGPU_PER_HOST))
   MPI_COMMAND=$(which mpiexec)
   NVME_PATH="/local/scratch/"
   MPI_DEFAULTS="\
@@ -58,16 +57,6 @@ setupMPI() {
   fi
 }
 
-condaThetaGPU220701() {
-  module load conda/2022-07-01 ; conda activate base
-  conda activate \
-    /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
-  # if [[ -f "${PARENT}/.venvs/thetaGPU/2022-07-01-deepspeed/bin/activate" ]]; then
-  #   echo "Found virtual environment!"
-  #   source "${PARENT}/.venvs/thetaGPU/2022-07-01-deepspeed/bin/activate"
-  # fi
-}
-
 condaThetaGPU230111() {
   module load conda/2023-01-11 ; conda activate base
   conda activate \
@@ -75,7 +64,7 @@ condaThetaGPU230111() {
   VENV_DIR="${PARENT}/venvs/thetaGPU/2023-01-11-deepspeed"
   if [[ -d "${VENV_DIR}" ]] ; then
     echo "Found venv at: ${VENV_DIR}"
-    # shellcheck source='../venvs/thetaGPU/2023-01-10/bin/activate'
+    # shellcheck source=../../venvs/thetaGPU/2023-01-10/bin/activate
     source "${VENV_DIR}/bin/activate"
   fi
 }
@@ -85,20 +74,6 @@ condaThetaGPU() {
   conda activate \
     /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
   echo "USING PYTHON: $(which python3)"
-}
-
-
-condaPolaris220908() {
-  echo "Loading: 'module load conda 2022-09-08 ; conda activate base'"
-  module load conda/2022-09-08 ; conda activate base
-  conda activate /lus/grand/projects/datascience/foremans/locations/polaris/miniconda3/envs/2022-09-08-deepspeed
-  export CFLAGS="-I${CONDA_PREFIX}/include"
-  export LDFLAGS="-L${CONDA_PREFIX}/lib"
-  VENV_DIR="${PARENT}/venvs/polaris/2022-09-08"
-  if [[ -d "${VENV_DIR}" ]]; then
-    echo "Found venv at: ${VENV_DIR}"
-    source "${VENV_DIR}/bin/activate"
-  fi
 }
 
 condaPolaris230110() {
@@ -144,8 +119,6 @@ setupPolaris()  {
     export MACHINE="Polaris"
     HOSTFILE="${PBS_NODEFILE}"
     # -- MPI / Comms Setup ----------------------------------------------------
-    # condaPolaris220908
-    # condaPolaris230110
     condaPolaris
     polarisMPI
     # export IBV_FORK_SAFE=1
@@ -155,10 +128,6 @@ setupPolaris()  {
 }
 
 # unset PYTHONUSERBASE
-export NCCL_DEBUG=warn
-export WANDB_CACHE_DIR="./cache/wandb"
-# CFLAGS="-I${CONDA_PREFIX}/include/"
-# LDFLAGS="-L${CONDA_PREFIX}/lib/"
 # export CFLAGS="${CFLAGS}"
 # export LDFLAGS="${LDFLAGS}"
 # export PATH="${CONDA_PREFIX}/bin:${PATH}"
@@ -170,6 +139,14 @@ export MPI_COMMAND="${MPI_COMMAND}"
 
 PYTHON_EXECUTABLE="$(which python3)"
 export PYTHON_EXECUTABLE="${PYTHON_EXECUTABLE}"
+export NCCL_DEBUG=warn
+export WANDB_CACHE_DIR="./cache/wandb"
+
+CFLAGS="-I${CONDA_PREFIX}/include/"
+LDFLAGS="-L${CONDA_PREFIX}/lib/"
+
+export CFLAGS="${CFLAGS}"
+export LDFLAGS="${LDFLAGS}"
 echo "USING PYTHON: $(which python3)"
 echo "CFLAGS: ${CFLAGS}"
 echo "LDFLAGS: ${LDFLAGS}"
@@ -195,4 +172,5 @@ setup() {
   export NGPUS="${NGPUS}"
   export NHOSTS="${NHOSTS}"
   export NGPU_PER_HOST="${NGPU_PER_HOST}"
+  echo "NUM_HOSTS: ${NHOSTS}, NGPU_PER_HOST: ${NGPU_PER_HOST}, NGPUS: ${WORLD_SIZE}"
 }
