@@ -1,5 +1,7 @@
 #!/bin/bash --login
 
+USER=$(whoami)
+
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 while [ -L "$SCRIPT_PATH" ]; do
   SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
@@ -16,13 +18,8 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
 done
 DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+PARENT=$(dirname "$DIR")
 
-# echo "DIR: $DIR"
-# echo "DIR1: $DIR1"
-# echo "current_dir: $SCRIPT_DIR"
-# echo "current file: $SCRIPT_PATH"
-# echo "DIR2: $DIR2"
-#
 echo "------------------------"
 echo "SCRIPT_DIR=$SCRIPT_DIR"
 echo "SCRIPT_PATH=$SCRIPT_PATH"
@@ -30,7 +27,6 @@ echo "------------------------"
 echo "SOURCE=$SOURCE"
 echo "DIR=$DIR"
 echo "------------------------"
-
 
 SETUP_FILE="${DIR}/setup.sh"
 if [[ -f "$SETUP_FILE" ]]; then
@@ -51,22 +47,6 @@ else
   echo "ERROR: UNABLE TO SOURCE ${MODEL_FILE}"
 fi
 
-USER=$(whoami)
-
-DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
-PARENT=$(dirname "$DIR")
-
-# if [[ $MODEL_SIZE == "25B" ]] ; then
-#   echo "Turning off Flash Attention for ${MODEL_SIZE} model"
-#   USE_FLASH_ATTN=0
-# else
-#   echo "Using flash attention for ${MODEL_SIZE} model"
-#   USE_FLASH_ATTN=1
-# fi
-#
-# source ./setup.sh
-
-
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ Model Parallel / Pipeline Parallel ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -75,45 +55,36 @@ PARENT=$(dirname "$DIR")
 # MPSIZE=8
 # PPSIZE=16
 # ----------
-# NHOSTS=$(wc -l < "${PBS_NODEFILE}")
-export DDP_IMPL="local"   # FSDP | local | torch
-export USE_FLASH_ATTN=1  # 1 | 0
-export USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
-export SEQ_LEN=1024
-export MPSIZE=4
-export PPSIZE=2
-export MICRO_BATCH=1
-export ZERO_STAGE=0  # 0 | 1 | 2 | 3
-export NHOSTS="$NHOSTS"
-export GRADIENT_ACCUMULATION_STEPS=1
-# export GLOBAL_BATCH_MULTIPLIER=1024
-# export GLOBAL_BATCH="${MICRO_BATCH}*${NGPUS}"
+DDP_IMPL="local"   # FSDP | local | torch
+USE_FLASH_ATTN=1  # 1 | 0
+USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
+SEQ_LEN=2048
+MPSIZE=8
+PPSIZE=16
+MICRO_BATCH=2
+ZERO_STAGE=0  # 0 | 1 | 2 | 3
+GRADIENT_ACCUMULATION_STEPS=256
 
-# echo "Setting GLOBAL_BATCH = GLOBAL_BATCH_MULTIPLIER * NHOSTS"
-# echo "Explicitly: $GLOBAL_BATCH_MULTIPLIER * $NHOSTS"
-# GLOBAL_BATCH="4*${NHOSTS}"
-#
-# WORLD_SIZE="${NGPUS}"
-# export WORLD_SIZE="${WORLD_SIZE}"
-# echo "WORLD_SIZE: ${WORLD_SIZE}"
-
-echo "NHOSTS: ${NHOSTS}"
-echo "NGPUS: ${NGPUS}"
-GLOBAL_BATCH=$(( $NGPUS * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
-GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE ))
-export GLOBAL_BATCH="$GLOBAL_BATCH"
+WORLD_SIZE="${NGPUS}"
+export WORLD_SIZE="${WORLD_SIZE}"
+GLOBAL_BATCH=$(( NGPUS * MICRO_BATCH * GRADIENT_ACCUMULATION_STEPS / (MPSIZE * PPSIZE) ))
 
 # GB=NGPU*MB*GAS
 # NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
+export SEQ_LEN="${SEQ_LEN}"
 
-# echo "Rescaling GLOBAL_BATCH := (GLOBAL_BATCH * MICRO_BATCH) = ({$GLOBAL_BATCH} * ${MICRO_BATCH})"
-# GLOBAL_BATCH=$((${GLOBAL_BATCH}*${MICRO_BATCH}))
+export DDP_IMPL="${DDP_IMPL}"
+export USE_FLASH_ATTN="${USE_FLASH_ATTN}"
+export ZERO_STAGE="${ZERO_STAGE}"
+export USE_ACTIVATION_CHECKPOINTING="${USE_ACTIVATION_CHECKPOINTING}"
 
-echo "--------------------------------"
-echo "GLOBAL_BATCH=${GLOBAL_BATCH}"
-# echo "GLOBAL_BATCH_ALT=${GLOBAL_BATCH_ALT}"
-echo "--------------------------------"
-
+export NHOSTS="${NHOSTS}"
+export NGPUS="${NGPUS}"
+export MPSIZE="${MPSIZE}"
+export PPSIZE="${PPSIZE}"
+export MICRO_BATCH="${MICRO_BATCH}"
+export GLOBAL_BATCH="${GLOBAL_BATCH}"
+export GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS}"
 
 # ┏━━━━━━━━━━━━┓
 # ┃ Data paths ┃
@@ -131,7 +102,7 @@ MERGE_FILE="${PARENT}/dataset/gpt2-merges.txt"
 # ┏━━━━━━━━━━━━━━━━━━━┓
 # ┃ FILE I/O SETTINGS ┃
 # ┗━━━━━━━━━━━━━━━━━━━┛
-RUN_STR="gb${GLOBAL_BATCH}_mb${MICRO_BATCH}"
+RUN_STR="gb${GLOBAL_BATCH}_mb${MICRO_BATCH}_gas${GRADIENT_ACCUMULATION_STEPS}"
 RUN_STR="nl${NLAYERS}_hs${HIDDEN}_${RUN_STR}"
 RUN_STR="mp${MPSIZE}_pp${PPSIZE}_${RUN_STR}"
 RUN_STR="z${ZERO_STAGE}_seqlen${SEQ_LEN}_${RUN_STR}"
@@ -198,11 +169,7 @@ cat <<EOT > "$DS_CONFIG"
     "offload_param": {
       "device": "cpu",
       "nvme_path": "/raid/scratch",
-      "pin_memory": false
-    },
-    "offload_optimizer": {
-      "device": "cpu",
-      "nvme_path": "/raid/scratch/"
+      "pin_memory": true
     }
   },
   "fp16": {
@@ -307,3 +274,6 @@ if [[ "$USE_FLASH_ATTN" == 1 ]] ; then
 fi
 
 export gpt_args="$gpt_args"
+
+echo "megatron args: ${gpt_args}"
+# echo "ds_config: ${DS_CONFIG}"
