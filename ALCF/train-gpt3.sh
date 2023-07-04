@@ -1,7 +1,6 @@
 #!/bin/bash --login
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
-# DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -LP)
 
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
@@ -10,6 +9,8 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
   [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
 done
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+
+echo "[train-gpt3.sh]: DIR: ${DIR}"
 
 
 #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -41,5 +42,5 @@ setup
 TORCH_VERSION=$(python3 -c 'import torch; print(torch.__version__)')
 export TORCH_VERSION=$TORCH_VERSION
 elasticDistributed "$@" 2>&1 &
-PID=$!
-wait $PID
+# PID=$!
+# wait $PID
