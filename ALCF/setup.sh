@@ -31,7 +31,12 @@ thetagpuMPI() {
 }
 
 polarisMPI() {
-  NHOSTS=$(wc -l < "${PBS_NODEFILE}")
+  # NHOSTS=$(wc -l < "${PBS_NODEFILE}")
+  if [[ -z "$HOSTFILE" ]] ; then HOSTFILE="${PBS_NODEFILE}" ; fi
+  NHOSTS=$(wc -l < "${HOSTFILE}")
+  echo "*******************************"
+  echo "USING HOSTFILE: ${HOSTFILE}"
+  echo "*******************************"
   NGPU_PER_HOST=$(nvidia-smi -L | wc -l)
   NGPUS=$((NHOSTS * NGPU_PER_HOST))
   MPI_COMMAND=$(which mpiexec)
@@ -117,7 +122,14 @@ setupThetaGPU() {
 setupPolaris()  {
   if [[ $(hostname) == x* ]]; then
     export MACHINE="Polaris"
-    HOSTFILE="${PBS_NODEFILE}"
+
+    if [[ -n $("$HOSTFILE") ]] ; then HOSTFILE="${PBS_NODEFILE}" ; fi
+    echo "*******************************"
+    echo "USING HOSTFILE: ${HOSTFILE}"
+    echo "*******************************"
+    # if [[ ! -z $(echo "$HOSTFILE" ]]; then
+    #   HOSTFILE="${PBS_NODEFILE}"
+    # fi
     # -- MPI / Comms Setup ----------------------------------------------------
     condaPolaris
     polarisMPI
