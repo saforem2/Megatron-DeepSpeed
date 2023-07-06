@@ -1,11 +1,28 @@
-## Megatron-DeepSpeed
+# Megatron-DeepSpeed
+
+This is my personal fork of the [Microsoft/Megatron-DeepSpeed](https://github.com/microsoft/Megatron-DeepSpeed) implementation.
+
+I've introduced various modifications for running on [ALCF](https://alcf.anl.gov)'s supercomputing resources as well as various helper scripts (in [`ALCF/`](./ALCF/)) that facilitate launching and running on our machines.
+
+I've added support for:
+
+- Experiment / Metric tracking with Weights & Biases
+  - [W&B Workspace: Megatron-LM](https://wandb.ai/l2hmc-qcd/megatron-LM?workspace=user-saforem2)
+- [HazyResearch/flash-attn](https://github.com/HazyResearch/flash-attention)
+- [PyTorch native FSDP](https://pytorch.org/blog/introducing-pytorch-fully-sharded-data-parallel-api/)
+
+---
+
+## Below is [Microsoft/Megatron-DeepSpeed](https://github.com/microsoft/Megatron-DeepSpeed)'s original README:
+
 DeepSpeed version of NVIDIA's Megatron-LM that adds additional support for several features such as MoE model training, Curriculum Learning, 3D Parallelism, and others. The ```Megatron-DeepSpeed/examples/``` folder includes example scripts about the features supported by DeepSpeed.
 
 ### Run on Azure and AzureML
 To try out DeepSpeed on Azure, this fork of Megatron offers easy-to-use recipes and bash scripts. We strongly recommend to start with AzureML recipe in the ```examples/azureml``` folder. If you have a custom infrastructure (e.g. HPC clusters) or Azure VM based environment, please refer to the bash scripts in the ```examples/azure``` folder. 
 
-Below is Megatron-LM's original README:
-------
+---
+
+## Below is Megatron-LM's original README:
 
 Megatron ([1](https://arxiv.org/pdf/1909.08053.pdf) and [2](https://arxiv.org/pdf/2104.04473.pdf)) is a large, powerful transformer developed by the Applied Deep Learning Research team at NVIDIA. This repository is for ongoing research on training large transformer language models at scale. We developed efficient, model-parallel (tensor and pipeline), and multi-node pre-training of transformer based models such as [GPT](https://arxiv.org/abs/2005.14165), [BERT](https://arxiv.org/pdf/1810.04805.pdf), and [T5](https://arxiv.org/abs/1910.10683) using mixed precision.
 
