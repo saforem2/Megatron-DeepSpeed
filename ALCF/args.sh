@@ -28,15 +28,15 @@ echo "SOURCE=$SOURCE"
 echo "DIR=$DIR"
 echo "------------------------"
 
-SETUP_FILE="${DIR}/setup.sh"
-if [[ -f "$SETUP_FILE" ]]; then
-  echo "source-ing ${SETUP_FILE}"
-  # shellcheck source=./setup.sh
-  source "$SETUP_FILE"
-  setupMPI
-else
-  echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
-fi
+# SETUP_FILE="${DIR}/setup.sh"
+# if [[ -f "$SETUP_FILE" ]]; then
+#   echo "source-ing ${SETUP_FILE}"
+#   # shellcheck source=./setup.sh
+#   source "$SETUP_FILE"
+#   setupMPI
+# else
+#   echo "ERROR: UNABLE TO SOURCE ${SETUP_FILE}"
+# fi
 
 MODEL_FILE="${DIR}/model.sh"
 if [[ -f "$MODEL_FILE" ]]; then
@@ -56,18 +56,29 @@ fi
 # PPSIZE=16
 # ----------
 DDP_IMPL="local"   # FSDP | local | torch
-USE_FLASH_ATTN=1  # 1 | 0
+USE_FLASH_ATTN=0  # 1 | 0
 USE_ACTIVATION_CHECKPOINTING=1  # 1 | 0
 SEQ_LEN=2048
 MPSIZE=8
 PPSIZE=16
 MICRO_BATCH=1
-ZERO_STAGE=1  # 0 | 1 | 2 | 3
-GRADIENT_ACCUMULATION_STEPS=8
+ZERO_STAGE=0  # 0 | 1 | 2 | 3
+GRADIENT_ACCUMULATION_STEPS=128
 
-WORLD_SIZE="${NGPUS}"
+# SLURM_NPROCS=
+WORLD_SIZE="${SLURM_NPROCS}"
 export WORLD_SIZE="${WORLD_SIZE}"
-GLOBAL_BATCH=$(( NGPUS * MICRO_BATCH * GRADIENT_ACCUMULATION_STEPS / (MPSIZE * PPSIZE) ))
+export GLOBAL_BATCH=$(( WORLD_SIZE * MICRO_BATCH * GRADIENT_ACCUMULATION_STEPS / (MPSIZE * PPSIZE) ))
+# GLOBAL_BATCH=$(( $WORLD_SIZE * $MICRO_BATCH * $GRADIENT_ACCUMULATION_STEPS ))
+# GLOBAL_BATCH=$(( $GLOBAL_BATCH / $MPSIZE ))
+export GLOBAL_BATCH="$GLOBAL_BATCH"
+
+echo "*****************************"
+echo "WORLD_SIZE: ${WORLD_SIZE}"
+echo "SLURM NPROCS: ${SLURM_NPROCS}"
+echo "SLURM NTASTS: ${SLURM_NTASKS}"
+echo "GLOBAL_BATCH: ${GLOBAL_BATCH}"
+echo "*****************************"
 
 # GB=NGPU*MB*GAS
 # NGPUS=$((${NHOSTS}*${NGPU_PER_HOST}))
@@ -78,8 +89,8 @@ export USE_FLASH_ATTN="${USE_FLASH_ATTN}"
 export ZERO_STAGE="${ZERO_STAGE}"
 export USE_ACTIVATION_CHECKPOINTING="${USE_ACTIVATION_CHECKPOINTING}"
 
-export NHOSTS="${NHOSTS}"
-export NGPUS="${NGPUS}"
+export NHOSTS="${SLURM_JOB_NUM_NODES}"
+export NGPUS="${SLURM_NPROCS}"
 export MPSIZE="${MPSIZE}"
 export PPSIZE="${PPSIZE}"
 export MICRO_BATCH="${MICRO_BATCH}"
@@ -95,7 +106,8 @@ export GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS}"
 # DATA_PATH="${PARENT}/dataset/BookCorpusDataset_text_document"
 # DATA_PATH=/lus/grand/projects/datascience/foremans/genslm_megatron_preprocess/genslm-subsample_sequence_document/genslm-subsample_sequence_document
 # DATA_PATH="/lus/eagle/projects/datascience/venkatv/datasets/pile_bin/pile_text_document"
-DATA_PATH=/lus/grand/projects/datascience/vsastry/genslm_subsample_200k_sequence_document/genslm_subsample_200k_sequence_document
+# DATA_PATH=/lus/grand/projects/datascience/vsastry/genslm_subsample_200k_sequence_document/genslm_subsample_200k_sequence_document
+DATA_PATH="${PARENT}/dataset/BookCorpusDataset_text_document"
 VOCAB_FILE="${PARENT}/dataset/gpt2-vocab.json"
 MERGE_FILE="${PARENT}/dataset/gpt2-merges.txt"
 
@@ -151,10 +163,10 @@ echo "OUTPUT TO: ${OUTPUT_DIR}"
 # ┏━━━━━━━━━━━━━━━━━━┓
 # ┃ DeepSpeed Config ┃
 # ┗━━━━━━━━━━━━━━━━━━┛
+# "train_batch_size" : $GLOBAL_BATCH,
 DS_CONFIG=${PARENT}/ds_config-gpt.json
 cat <<EOT > "$DS_CONFIG"
 {
-  "train_batch_size" : $GLOBAL_BATCH,
   "train_micro_batch_size_per_gpu": $MICRO_BATCH,
   "gradient_accumulation_steps": $GRADIENT_ACCUMULATION_STEPS,
   "steps_per_print": 1,
@@ -220,6 +232,7 @@ fi
 # ┏━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃ MEGATRON-LM SETTINGS ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━┛
+# --global-batch-size ${GLOBAL_BATCH} \
 gpt_args="\
   --seed ${RANDOM} \
   --DDP-impl ${DDP_IMPL} \
@@ -229,7 +242,6 @@ gpt_args="\
   --hidden-size ${HIDDEN} \
   --num-attention-heads ${ATEN_HEADS} \
   --micro-batch-size ${MICRO_BATCH} \
-  --global-batch-size ${GLOBAL_BATCH} \
   --seq-length ${SEQ_LEN} \
   --max-position-embeddings ${SEQ_LEN} \
   --train-iters 5 \
