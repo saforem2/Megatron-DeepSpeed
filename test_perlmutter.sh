@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH -A m4388_g
+#SBATCH -A m3957_g
 #SBATCH -C gpu&hbm80g
 #SBATCH -q regular
 #SBATCH -t 1:00:00
-#SBATCH -N 32
+#SBATCH -N 16
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-task=1
 #SBATCH --gpu-bind=none
