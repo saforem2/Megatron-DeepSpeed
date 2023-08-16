@@ -74,10 +74,28 @@ condaThetaGPU230111() {
   fi
 }
 
+# condaThetaGPU() {
+#   module load conda/2022-07-01 ; conda activate base
+#   conda activate \
+#     /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
+#   echo "USING PYTHON: $(which python3)"
+# }
+
 condaThetaGPU() {
-  module load conda/2022-07-01 ; conda activate base
-  conda activate \
-    /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
+  # module load conda/2022-07-01 ; conda activate base
+  # conda activate \
+  #   /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
+  # module load conda/2022-07-01 ; conda activate base
+  # conda activate \
+  #   /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2022-07-01
+  module load conda/2023-01-11 ; conda activate base
+  conda activate /lus/grand/projects/datascience/foremans/locations/thetaGPU/miniconda3/envs/2023-04-26
+  VENV_DIR="${PARENT}/venvs/thetaGPU/2023-04-26"
+  if [[ -d "${VENV_DIR}" ]] ; then
+    echo "Found venv at: ${VENV_DIR}"
+    # shellcheck source='../venvs/thetaGPU/2023-01-10/bin/activate'
+    source "${VENV_DIR}/bin/activate"
+  fi
   echo "USING PYTHON: $(which python3)"
 }
 
