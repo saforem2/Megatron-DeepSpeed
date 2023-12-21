@@ -1,16 +1,5 @@
 __pycache__
 
-.cache/
-cache/
-hostfile
-old/
-outputs/
-venvs/
-wandb/
-
-
-dataset/*
-
 # Distribution / packaging
 build/
 dist/
@@ -23,25 +12,12 @@ dist/
 *.swp
 
 # AML workspace config file
-*config.json
+config.json
 
-*.e0*
-*.e1*
-*.e2*
-*.e3*
-*.e4*
-*.e5*
-*.e6*
-*.e7*
-*.e8*
-*.e9*
-*.o0*
-*.o1*
-*.o2*
-*.o3*
-*.o4*
-*.o5*
-*.o6*
-*.o7*
-*.o8*
-*.o9*
+.coverage_*
+*~
+slurm*
+logs
+
+# Data folder
+bookcorpus_data/
