@@ -1,26 +1,12 @@
-# coding=utf-8
-# Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 
 """GPT-2 model."""
 
-from functools import partial
 import torch
 
 from megatron import get_args
-from megatron import mpu
-from .module import MegatronModule, fp32_to_float16
+from megatron.core import mpu, tensor_parallel, sequence_parallel
+from .module import MegatronModule, fp32_to_float16, float16_to_fp32
 
 from .enums import AttnMaskType
 from .language_model import parallel_lm_logits
@@ -28,39 +14,55 @@ from .language_model import get_language_model
 from .utils import init_method_normal
 from .utils import scaled_init_method_normal
 
-from deepspeed.pipe import PipelineModule, LayerSpec, TiedLayerSpec
 from megatron.model import LayerNorm
-from megatron.model.module import float16_to_fp32
 from .language_model import EmbeddingPipe
-from .transformer import ParallelTransformerLayerPipe
+from .transformer import ParallelTransformerLayerPipe, LMHeadPipe
+from deepspeed.pipe import PipelineModule, LayerSpec, TiedLayerSpec
+
+try:
+    from apex.normalization import MixedFusedRMSNorm
+except ImportError:
+    MixedFusedRMSNorm = None
+
+try:         
+    from deepspeed.checkpoint import (
+        VOCABULARY_PARAMETER_PATTERNS,
+        PIPELINE_REPLICATED_PARAMETER_PATTERNS,
+        TP_REPLICATED_PARAMETER_PATTERNS,
+        PARAMETER_WITH_ROW_PARALLELISM_PATTERNS,
+        PARAMETER_WITH_2_SUB_PARAMS_CAT_DIM_0,
+    )
+    DS_UNIVERSAL_CHECKPOINT_INFO = True 
+except ImportError:
+    DS_UNIVERSAL_CHECKPOINT_INFO = False  
 
 
 def post_language_model_processing(lm_output, labels, logit_weights,
-                                   get_key_value, parallel_output,
-                                   forward_method_parallel_output,
+                                   parallel_output,
                                    fp16_lm_cross_entropy):
-    if get_key_value:
-        lm_output, presents = lm_output
 
-    # Output.
-    if forward_method_parallel_output is not None:
-        parallel_output = forward_method_parallel_output
+    # Output. Format [s b h]
     output = parallel_lm_logits(
         lm_output,
         logit_weights,
         parallel_output)
 
-    if get_key_value:
-        output = [output, presents]
-
     if labels is None:
-        return output
+        # [s b h] => [b s h]
+        return output.transpose(0,1).contiguous()
     else:
+        # [b s] => [s b]
+        labels = labels.transpose(0,1).contiguous()
+        cross_entropy = sequence_parallel.vocab_sequence_parallel_cross_entropy if mpu.get_sequence_parallel_world_size() > 1 \
+            else tensor_parallel.vocab_parallel_cross_entropy
         if fp16_lm_cross_entropy:
             assert output.dtype == torch.half
-            loss = mpu.vocab_parallel_cross_entropy(output, labels)
+            loss = cross_entropy(output, labels)
         else:
-            loss = mpu.vocab_parallel_cross_entropy(output.float(), labels)
+            loss = cross_entropy(output.float(), labels)
+
+        # [s b] => [b, s]
+        loss = loss.transpose(0,1).contiguous()
         return loss
 
 
@@ -68,38 +70,44 @@ class GPTModel(MegatronModule):
     """GPT-2 Language model."""
 
     def __init__(self,
+                 config,
                  num_tokentypes=0,
                  parallel_output=True,
                  pre_process=True,
                  post_process=True,
                  return_moe_loss=True):
-        super(GPTModel, self).__init__()
         args = get_args()
+        super().__init__(config=config, share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights)
 
         self.parallel_output = parallel_output
         self.pre_process = pre_process
         self.post_process = post_process
         self.fp16_lm_cross_entropy = args.fp16_lm_cross_entropy
         self.return_moe_loss = return_moe_loss
+        self.untie_embeddings_and_output_weights = args.untie_embeddings_and_output_weights
+
         self.language_model, self._language_model_key = get_language_model(
+            config=config,
             num_tokentypes=num_tokentypes,
             add_pooler=False,
             encoder_attn_mask_type=AttnMaskType.causal,
-            init_method=init_method_normal(args.init_method_std),
-            scaled_init_method=scaled_init_method_normal(args.init_method_std, args.num_layers),
-            num_experts=args.num_experts,
             pre_process=self.pre_process,
-            post_process=self.post_process)
+            post_process=self.post_process,
+            num_experts=args.num_experts)
 
-        self.initialize_word_embeddings(init_method_normal)
+        if not args.untie_embeddings_and_output_weights:
+            self.initialize_word_embeddings()
 
     def set_input_tensor(self, input_tensor):
         """See megatron.model.transformer.set_input_tensor()"""
         self.language_model.set_input_tensor(input_tensor)
 
-    def forward(self, input_ids, position_ids, attention_mask, labels=None,
-                tokentype_ids=None, layer_past=None, get_key_value=False,
-                forward_method_parallel_output=None, curriculum_seqlen=None):
+    def forward(self, input_ids, position_ids, attention_mask,
+                retriever_input_ids=None,
+                retriever_position_ids=None,
+                retriever_attn_mask=None,
+                labels=None, tokentype_ids=None, inference_params=None,
+                curriculum_seqlen=None):
         args = get_args()
         if curriculum_seqlen is not None:
             args.curriculum_seqlen = curriculum_seqlen
@@ -118,33 +126,29 @@ class GPTModel(MegatronModule):
                 # If got a None input, need to reset curriculum_seqlen on user side
                 args.curriculum_seqlen = args.seq_length
 
-        lm_output, *moe_losses = self.language_model(
+        lm_output, moe_losses = self.language_model(
             input_ids,
             position_ids,
             attention_mask,
-            layer_past=layer_past,
-            get_key_value=get_key_value)
+            retriever_input_ids=retriever_input_ids,
+            retriever_position_ids=retriever_position_ids,
+            retriever_attn_mask=retriever_attn_mask,
+            inference_params=inference_params)
 
         if self.post_process:
             lm_output = post_language_model_processing(
-                    lm_output, labels,
-                    self.word_embeddings_weight(),
-                    get_key_value,
-                    self.parallel_output,
-                    forward_method_parallel_output,
-                    self.fp16_lm_cross_entropy)
-        
-        if self.return_moe_loss:
-            return (lm_output, *moe_losses)
-        else:
-            return lm_output
+                lm_output, labels,
+                self.language_model.output_layer.weight if self.untie_embeddings_and_output_weights else self.shared_embedding_or_output_weight(),
+                self.parallel_output,
+                self.fp16_lm_cross_entropy)
 
-    def state_dict_for_save_checkpoint(self, destination=None, prefix='',
-                                       keep_vars=False):
+        return lm_output, moe_losses if self.return_moe_loss else lm_output
+
+    def state_dict_for_save_checkpoint(self, prefix='', keep_vars=False):
 
         state_dict_ = {}
         language_model_state_dict = self.language_model.state_dict_for_save_checkpoint(
-                destination, prefix, keep_vars)
+                prefix=prefix, keep_vars=keep_vars)
         # MoE states need to be handled separately by DeepSpeed engine, thus
         # moving them to the top level dictionary
         if "moe_state_dict" in language_model_state_dict:
@@ -153,16 +157,17 @@ class GPTModel(MegatronModule):
             del language_model_state_dict["moe_state_dict"]
         state_dict_[self._language_model_key] = language_model_state_dict
         # Save word_embeddings.
-        if self.post_process and not self.pre_process:
+        if self.post_process and not self.pre_process and not self.untie_embeddings_and_output_weights:
             state_dict_[self._word_embeddings_for_head_key] \
-                = self.word_embeddings.state_dict(destination, prefix, keep_vars)
+                = self.word_embeddings.state_dict(prefix=prefix,
+                                                  keep_vars=keep_vars)
         return state_dict_
 
     def load_state_dict(self, state_dict, strict=True):
         """Customized load."""
 
         # Load word_embeddings.
-        if self.post_process and not self.pre_process:
+        if self.post_process and not self.pre_process and not self.untie_embeddings_and_output_weights:
             self.word_embeddings.load_state_dict(
                 state_dict[self._word_embeddings_for_head_key], strict=strict)
         # Gather MoE states and move under language model
@@ -176,13 +181,46 @@ class GPTModel(MegatronModule):
             state_dict["moe_state_dict"] = moe_state_dict
         self.language_model.load_state_dict(state_dict, strict=strict)
 
+    def _get_vocab_param_patterns(self):
+        args = get_args()
+        if args.untie_embeddings_and_output_weights:
+            patterns = [
+                r"\d+.word_embeddings.weight",
+                r"\d+.lm_head.weight"
+            ]
+        else:
+            patterns = [
+                r"tied_modules.embed.word_embeddings.weight"
+            ]
+        return patterns
 
+    def universal_checkpoint_info(self):
+        info = dict()
+        args = get_args()
+
+        if DS_UNIVERSAL_CHECKPOINT_INFO:
+            # Vocabulary parameters (embeddings) that require special handling due to padding.
+            info[VOCABULARY_PARAMETER_PATTERNS] = self._get_vocab_param_patterns()
+            
+            if args.tensor_model_parallel_size > 1:
+                # Parameter slices that should be averaged not concatenated.
+                info[TP_REPLICATED_PARAMETER_PATTERNS] = self._get_tp_replicated_param_patterns()
+
+                # Parameter that are sliced on the row dimension
+                info[PARAMETER_WITH_ROW_PARALLELISM_PATTERNS] = self._get_row_parallel_param_patterns()
+
+        return info
+    
 def CrossEntropy(output, labels):
     labels, loss_mask = labels[0], labels[1]
 
     args = get_args()
 
-    losses = mpu.vocab_parallel_cross_entropy(output.contiguous().float(), labels)
+    # [b s] => [s b]
+    labels = labels.transpose(0, 1).contiguous()
+    losses = tensor_parallel.vocab_parallel_cross_entropy(output.contiguous().float(), labels)
+    # [s b] => [b, s]
+    losses = losses.transpose(0, 1).contiguous()
     loss_mask = loss_mask.view(-1)
     loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()
     return loss
@@ -192,12 +230,18 @@ class GPTModelPipe(PipelineModule,MegatronModule):
     """GPT-2 Language model."""
 
     def __init__(self,
+                 config,
                  num_tokentypes=0,
                  parallel_output=True):
         args = get_args()
         self.parallel_output = parallel_output
 
-        init_method = init_method_normal(args.init_method_std)
+        if config.init_method is None:
+            config.init_method = init_method_normal(config.init_method_std)
+
+        if config.output_layer_init_method is None:
+            config.output_layer_init_method = scaled_init_method_normal(config.init_method_std,
+                                                                        config.num_layers)
 
         self.specs = []
 
@@ -212,39 +256,41 @@ class GPTModelPipe(PipelineModule,MegatronModule):
         self.specs.append(_to_float16)
 
         # Embedding layer
-        self.specs.append(TiedLayerSpec('embed',
-                                        EmbeddingPipe,
+        if args.untie_embeddings_and_output_weights:
+            self.specs.append(LayerSpec(EmbeddingPipe,
                                         args.hidden_size,
                                         args.padded_vocab_size,
                                         args.max_position_embeddings,
                                         args.hidden_dropout,
-                                        init_method=init_method,
+                                        config,
                                         num_tokentypes=num_tokentypes,
-                                        tied_weight_attr='word_embeddings_weight'))
-        
-        if args.fp32_residual_connection:
-            self.specs.append(lambda x: x.transpose(0, 1).contiguous().float())
+                                        embedding_weights_in_fp32=args.embedding_weights_in_fp32,))
         else:
-            self.specs.append(lambda x: x.transpose(0, 1).contiguous())
+            self.specs.append(TiedLayerSpec('embed',
+                                            EmbeddingPipe,
+                                            args.hidden_size,
+                                            args.padded_vocab_size,
+                                            args.max_position_embeddings,
+                                            args.hidden_dropout,
+                                            config,
+                                            num_tokentypes=num_tokentypes,
+                                            embedding_weights_in_fp32=args.embedding_weights_in_fp32,
+                                            tied_weight_attr='word_embeddings_weight'))
 
         for layer_idx in range(args.num_layers):
             self.specs.append(
                 LayerSpec(ParallelTransformerLayerPipe,
-                    init_method=init_method,
-                    output_layer_init_method=scaled_init_method_normal(args.init_method_std,
-                                                                       args.num_layers),
+                    config,
                     layer_number=layer_idx,
                     self_attn_mask_type=AttnMaskType.causal))
-                
-        
-        # Undo data format change
-        self.specs.append(lambda x: x.transpose(0, 1).contiguous())
 
         # Final layernorm after transformer layers
-        self.specs.append(
-            LayerSpec(LayerNorm,
-                      args.hidden_size,
-                      eps=args.layernorm_epsilon))
+        if args.normalization == 'layernorm':
+            self.specs.append(LayerSpec(LayerNorm,
+                          args.hidden_size,
+                          eps=args.layernorm_epsilon))
+        else:
+            self.specs.append(LayerSpec(MixedFusedRMSNorm, args.hidden_size, args.layernorm_epsilon))
 
         def _logits_helper(embedding, lm_output):
             """A wrapper to massage inputs/outputs from pipeline. """
@@ -252,19 +298,24 @@ class GPTModelPipe(PipelineModule,MegatronModule):
                 lm_output,
                 embedding.word_embeddings_weight,
                 self.parallel_output)
-
-        self.specs.append(
-            TiedLayerSpec('embed',
-                          EmbeddingPipe,
-                          args.hidden_size,
-                          args.padded_vocab_size,
-                          args.max_position_embeddings,
-                          args.hidden_dropout,
-                          init_method=init_method,
-                          num_tokentypes=num_tokentypes,
-                          forward_fn=_logits_helper,
-                          tied_weight_attr='word_embeddings_weight')
-        )
+        if args.untie_embeddings_and_output_weights:
+            self.specs.append(
+                LayerSpec(LMHeadPipe, args.hidden_size, args.padded_vocab_size, config)
+            )
+        else:
+            self.specs.append(
+                TiedLayerSpec('embed',
+                              EmbeddingPipe,
+                              args.hidden_size,
+                              args.padded_vocab_size,
+                              args.max_position_embeddings,
+                              args.hidden_dropout,
+                              config,
+                              num_tokentypes=num_tokentypes,
+                              embedding_weights_in_fp32=args.embedding_weights_in_fp32,
+                              forward_fn=_logits_helper,
+                              tied_weight_attr='word_embeddings_weight')
+            )
 
         # Convert to fp32 if needed
         if args.fp16 or args.bf16:
@@ -272,9 +323,12 @@ class GPTModelPipe(PipelineModule,MegatronModule):
 
         if args.checkpoint_activations:
             interval = args.checkpoint_num_layers
+        elif args.recompute_granularity == "full" and args.recompute_method == 'uniform':
+            # deepspeed's pipeline doesn't support the block recompute method
+            interval = args.recompute_num_layers
         else:
             interval = 0
-        
+
         from deepspeed.runtime.pipe.topology import PipeModelDataParallelTopology
         topo = PipeModelDataParallelTopology(num_pp=mpu.get_pipeline_model_parallel_world_size(),
                                              num_mp=mpu.get_tensor_model_parallel_world_size(),
@@ -285,3 +339,89 @@ class GPTModelPipe(PipelineModule,MegatronModule):
                          topology=topo,
                          activation_checkpoint_interval=interval,
                          partition_method='type:transformer')
+
+    @staticmethod
+    def _get_vocab_param_patterns():
+        args = get_args()
+        if args.untie_embeddings_and_output_weights:
+            patterns = [
+                r"\d+.word_embeddings.weight",
+                r"\d+.lm_head.weight"
+            ]
+        else:
+            patterns = [
+                r"tied_modules.embed.word_embeddings.weight"
+            ]
+        return patterns
+
+    def _get_pp_replicated_param_patterns(self):
+        args = get_args()
+        if args.untie_embeddings_and_output_weights:
+            return []
+        patterns = self._get_vocab_param_patterns()
+        if args.add_position_embedding:
+            patterns.append(r"tied_modules.embed.position_embeddings.weight")
+        return patterns
+
+    @staticmethod
+    def _get_tp_replicated_param_patterns():
+        args = get_args()
+        patterns = [
+            r"\d+.input_layernorm.weight",
+            r"\d+.post_attention_layernorm.weight",
+            r"\d+.weight",
+        ]
+        if args.add_position_embedding:
+            patterns.append(r"tied_modules.embed.position_embeddings.weight")
+        if args.add_bias_linear:
+            patterns.extend([
+                r"\d+.self_attention.dense.bias",
+                r"\d+.mlp.dense_4h_to_h.bias",
+            ])
+        if args.normalization == 'layernorm':
+            patterns.extend([
+                r"\d+.input_layernorm.bias",
+                r"\d+.post_attention_layernorm.bias",
+                r"\d+.bias",
+            ])
+        return patterns
+
+    @staticmethod
+    def _get_row_parallel_param_patterns():
+        return [
+            r"\d+.mlp.dense_4h_to_h.weight",
+            r"\d+.self_attention.dense.weight",
+        ]
+
+    @staticmethod
+    def _get_swiglu_col_parallel_param_patterns():
+        args = get_args()
+        if not args.swiglu:
+            return []
+        patterns = [
+            r"\d+.mlp.dense_h_to_4h.weight",
+        ]
+        if args.add_bias_linear:
+            patterns.append(r"\d+.mlp.dense_h_to_4h.bias")
+        return patterns
+
+
+    def universal_checkpoint_info(self):
+        info = dict()
+        if DS_UNIVERSAL_CHECKPOINT_INFO:
+            # Vocabulary parameters (embeddings) that require special handling due to padding.
+            info[VOCABULARY_PARAMETER_PATTERNS] = self._get_vocab_param_patterns()
+
+            # Replicated (shared) parameters on the pipeline dimension
+            info[PIPELINE_REPLICATED_PARAMETER_PATTERNS] = self._get_pp_replicated_param_patterns()
+
+            # Parameter slices that should be averaged not concatenated.
+            info[TP_REPLICATED_PARAMETER_PATTERNS] = self._get_tp_replicated_param_patterns()
+
+            # Parameter that are sliced on the row dimension
+            info[PARAMETER_WITH_ROW_PARALLELISM_PATTERNS] = self._get_row_parallel_param_patterns()
+
+            # SWIGLU parameters are first sliced on dim=0 to tp slices
+            # Then, each tp slice is chunked into 2 to create the linear layers L1, L2 used for silu(L1(x)) * L2(x))
+            info[PARAMETER_WITH_2_SUB_PARAMS_CAT_DIM_0] = self._get_swiglu_col_parallel_param_patterns()
+        return info
