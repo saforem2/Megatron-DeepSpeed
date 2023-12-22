@@ -786,6 +786,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
     args = get_args()
     timers = get_timers()
     writer = get_tensorboard_writer()
+    assert args is not None and timers is not None
 
     # Advanced, skipped, and Nan iterations.
     advanced_iters_key = 'advanced iterations'
@@ -1038,6 +1039,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         tokens_per_gpu_per_second = tokens_per_sec / args.world_size
         tokens_per_gpu_per_second_per_replica = tokens_per_gpu_per_second / args.data_parallel_size
         if wandb is not None and getattr(wandb, 'run', None) is not None:
+            assert wandb.run is not None
             tput = {
                 'throughput/iteration-time': elapsed_time_per_iteration,  # 1000 ms / s
                 'throughput/samples_per_sec': samples_per_sec,
@@ -1050,7 +1052,17 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                 'throughput/approx_params_in_billions': approx_parameters_in_billions,
                 'throughput/elapsed_ms_per_iteration': elapsed_time_per_iteration,
             }
-            wandb.run.log(tput)
+            train_metrics = {
+                'Training/iteration': iteration,
+                'Training/learning-rate': learning_rate,
+                'Training/consumed-train-tokens': args.consumed_train_tokens,
+                'Training/consumed-train-samples': args.consumed_train_samples,
+            }
+            train_metrics |= {
+                f'Training/loss-{key}': val for key, val in loss_dict.items()
+            }
+            wandb.run.log(tput, commit=False)
+            wandb.run.log(train_metrics)
         if writer:
             if args.log_timers_to_tensorboard:
                 writer.add_scalar('iteration-time/iteration-time',
