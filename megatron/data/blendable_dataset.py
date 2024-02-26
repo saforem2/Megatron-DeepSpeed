@@ -13,16 +13,39 @@ from deepspeed.accelerator import get_accelerator
 from megatron import print_rank_0
 from megatron.core import mpu
 
+
 class BlendableDataset(torch.utils.data.Dataset):
 
-
-    def __init__(self, datasets, weights, size, *,
-                 data_cache_path=None):
-
+    def __init__(
+            self,
+            datasets,
+            weights,
+            size,
+            *,
+            data_cache_path=None
+    ):
         self.datasets = datasets
         num_datasets = len(datasets)
+        ndsets = np.array([num_datasets], dtype=np.int64).item()
+        len_weights = np.array([len(weights)], dtype=np.int64).item()
+        print_rank_0(f'{len(datasets)=}')
+        print_rank_0(f'{len(weights)}')
+        print_rank_0(f'{ndsets=}')
+        print_rank_0(f'{len_weights=}')
+        # if int(num_datasets) != int(len(weights)):
+        # if f'{num_datasets}' == f'{len(weights)}':
+        if ndsets != len_weights:
+            warr = np.array(weights)
+            print_rank_0('\n'.join([
+                f'{num_datasets=}',
+                f'{len(weights)=}',
+                f'{warr.shape=}',
+                f'{warr.sum()=}',
+                # f'{num_datasets=} != {len(warr)=}',
+            ]))
         assert num_datasets == len(weights)
-
+        # else:
+        #     raise IndexError(f'{num_datasets=} != {len(weights)=}')
         self.size = size
 
         # Normalize weights.
@@ -34,8 +57,8 @@ class BlendableDataset(torch.utils.data.Dataset):
         # Build indicies.
         def _build_indices():
             start_time = time.time()
-            assert num_datasets < 255
-            dataset_index = np.zeros(self.size, dtype=np.uint8)
+            # assert num_datasets < 255
+            dataset_index = np.zeros(self.size, dtype=np.int64)
             dataset_sample_index = np.zeros(self.size, dtype=np.int64)
 
             from megatron.data import helpers
@@ -92,16 +115,21 @@ class BlendableDataset(torch.utils.data.Dataset):
 
             # Load on all ranks.
             print_rank_0(f'> loading blendable dataset index: {index_path}')
-            self.dataset_index = np.load(index_path, allow_pickle=True, mmap_mode='r')
+            self.dataset_index = np.load(
+                index_path,
+                allow_pickle=True,
+                mmap_mode='r'
+            )
             assert self.dataset_index.size == self.size
 
-            print_rank_0(f'> loading blendable dataset sample index: {sample_index_path}')
+            print_rank_0(
+                f'> loading blendable dataset sample index: '
+                f'{sample_index_path}'
+            )
             self.dataset_sample_index = np.load(sample_index_path, allow_pickle=True, mmap_mode='r')
             assert self.dataset_sample_index.size == self.size
         else:
             self.dataset_index, self.dataset_sample_index = _build_indices()
-
-
         # Check size
         _ = self.__getitem__(self.size - 1)
         try:
@@ -112,15 +140,13 @@ class BlendableDataset(torch.utils.data.Dataset):
         print_rank_0('> size of blendable dataset: '
                      '{} samples'.format(self.size))
 
-
     def __len__(self):
         return self.size
-
 
     def __getitem__(self, idx):
         dataset_idx = self.dataset_index[idx]
         sample_idx = self.dataset_sample_index[idx]
         return {
-            "dataset_idx" : dataset_idx,
+            "dataset_idx": dataset_idx,
             **self.datasets[dataset_idx][sample_idx],
         }
