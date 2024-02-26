@@ -32,16 +32,23 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
 
         # Single dataset.
         if len(data_prefix) == 1:
-            return _build_train_valid_test_datasets(data_prefix[0],
-                                                    data_impl, splits_string,
-                                                    train_valid_test_num_samples,
-                                                    seq_length, seed, skip_warmup,
-                                                    data_cache_path=data_cache_path)
+            return _build_train_valid_test_datasets(
+                data_prefix[0],
+                data_impl,
+                splits_string,
+                train_valid_test_num_samples,
+                seq_length,
+                seed,
+                skip_warmup,
+                data_cache_path=data_cache_path
+            )
 
         # Blending dataset.
         # Parse the values.
-        output = get_datasets_weights_and_num_samples(data_prefix,
-                                                      train_valid_test_num_samples)
+        output = get_datasets_weights_and_num_samples(
+            data_prefix,
+            train_valid_test_num_samples
+        )
         prefixes, weights, datasets_train_valid_test_num_samples = output
         train_num_samples, valid_num_samples, test_num_samples = map(
             sum,
@@ -69,55 +76,92 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
         # Blend.
         blending_train_dataset = None
         if train_datasets:
-            blending_train_dataset = BlendableDataset(train_datasets, weights, train_num_samples,
-                                                      data_cache_path=data_cache_path)
+            blending_train_dataset = BlendableDataset(
+                train_datasets,
+                weights,
+                train_num_samples,
+                data_cache_path=data_cache_path
+            )
         blending_valid_dataset = None
         if valid_datasets:
-            blending_valid_dataset = BlendableDataset(valid_datasets, weights, valid_num_samples,
-                                                      data_cache_path=data_cache_path)
+            blending_valid_dataset = BlendableDataset(
+                valid_datasets,
+                weights,
+                valid_num_samples,
+                data_cache_path=data_cache_path
+            )
         blending_test_dataset = None
         if test_datasets:
-            blending_test_dataset = BlendableDataset(test_datasets, weights, test_num_samples,
-                                                     data_cache_path=data_cache_path)
+            blending_test_dataset = BlendableDataset(
+                test_datasets,
+                weights,
+                test_num_samples,
+                data_cache_path=data_cache_path
+            )
 
         return (blending_train_dataset, blending_valid_dataset,
                 blending_test_dataset)
 
     else:
-        print_rank_0("Separate data paths provided for train, valid & test. Split string will be ignored.")
+        print_rank_0(
+            "Separate data paths provided for train, valid & test. "
+            "Split string will be ignored."
+        )
 
         train_dataset, valid_dataset, test_dataset = None, None, None
         # Single dataset.
         if train_data_prefix is not None:
-            train_dataset = build_dataset("train", train_data_prefix, data_impl,
-                                          splits_string,
-                                          train_valid_test_num_samples[0],
-                                          seq_length, seed, skip_warmup,
-                                          data_cache_path=data_cache_path)
+            train_dataset = build_dataset(
+                "train",
+                train_data_prefix,
+                data_impl,
+                splits_string,
+                train_valid_test_num_samples[0],
+                seq_length, seed, skip_warmup,
+                data_cache_path=data_cache_path
+            )
 
         if valid_data_prefix is not None:
-            valid_dataset = build_dataset("valid", valid_data_prefix, data_impl,
-                                          splits_string,
-                                          train_valid_test_num_samples[1],
-                                          seq_length, seed, False,
-                                          data_cache_path=data_cache_path)
-
+            valid_dataset = build_dataset(
+                "valid",
+                valid_data_prefix,
+                data_impl,
+                splits_string,
+                train_valid_test_num_samples[1],
+                seq_length,
+                seed,
+                False,
+                data_cache_path=data_cache_path
+            )
 
         if test_data_prefix is not None:
-            test_dataset = build_dataset("test", test_data_prefix, data_impl,
-                                         splits_string,
-                                         train_valid_test_num_samples[2],
-                                         seq_length, seed, False,
-                                         data_cache_path=data_cache_path)
+            test_dataset = build_dataset(
+                "test",
+                test_data_prefix,
+                data_impl,
+                splits_string,
+                train_valid_test_num_samples[2],
+                seq_length,
+                seed,
+                False,
+                data_cache_path=data_cache_path
+            )
 
         return (train_dataset, valid_dataset, test_dataset)
 
 
-def _build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
-                                     train_valid_test_num_samples,
-                                     seq_length, seed, skip_warmup,
-                                     return_doc_ids=False, *,
-                                     data_cache_path=None):
+def _build_train_valid_test_datasets(
+        data_prefix,
+        data_impl,
+        splits_string,
+        train_valid_test_num_samples,
+        seq_length,
+        seed,
+        skip_warmup,
+        return_doc_ids=False,
+        *,
+        data_cache_path=None
+):
     """Build train, valid, and test datasets."""
 
     # Indexed dataset.
@@ -195,10 +239,18 @@ def build_dataset(dataset_name, data_prefix, data_impl,
     return dataset
 
 
-def _build_dataset(dataset_name, data_prefix, data_impl, splits_string,
-                   num_samples, seq_length, seed, skip_warmup,
-                   *,
-                   data_cache_path=None):
+def _build_dataset(
+        dataset_name,
+        data_prefix,
+        data_impl,
+        splits_string,
+        num_samples,
+        seq_length,
+        seed,
+        skip_warmup,
+        *,
+        data_cache_path=None
+):
     """
     Build dataset. This method is called when individual
     train, valid, test datasets are provided
@@ -211,18 +263,34 @@ def _build_dataset(dataset_name, data_prefix, data_impl, splits_string,
 
     total_num_of_documents = indexed_dataset.sizes.shape[0]
 
-    print_rank_0('    {}:'.format(dataset_name))
-    print_rank_0('     document indices in [0, {}) total of {} '
-                 'documents'.format(total_num_of_documents, total_num_of_documents))
+    print_rank_0(f'    {dataset_name}:')
+    print_rank_0(
+        f'     '
+        f'document indices in [0, {total_num_of_documents}) '
+        f'total of {total_num_of_documents} documents'
+    )
+    # 'documents'.format(
+    # total_num_of_documents,
+    # total_num_of_documents
+    # ))
 
-    documents = np.arange(start=0, stop=total_num_of_documents,
-                        step=1, dtype=np.int32)
-
-    dataset = GPTDataset(dataset_name, data_prefix, documents, indexed_dataset,
-                         splits_string, num_samples, seq_length, seed,
-                         data_cache_path=data_cache_path)
-
-    return dataset
+    documents = np.arange(
+        start=0,
+        stop=total_num_of_documents,
+        step=1,
+        # dtype=np.int32
+    )
+    return GPTDataset(
+        dataset_name,
+        data_prefix,
+        documents,
+        indexed_dataset,
+        splits_string,
+        num_samples,
+        seq_length,
+        seed,
+        data_cache_path=data_cache_path
+    )
 
 
 def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
@@ -273,7 +341,31 @@ class GPTDataset(torch.utils.data.Dataset):
         args = get_args()
         orig_idx = idx
         # Get the shuffled index.
-        idx = self.shuffle_idx[idx]
+        try:
+            idx = self.shuffle_idx[idx]
+        except IndexError as exc:
+            if is_rank_0():
+                import json
+                from rich import print_json
+                print(exc)
+                print(
+                    '\n'.join(
+                        ['-------------------------------------------------',
+                         f'Trying to access {idx=} from self.shuffle_idx,',
+                         f'but {len(self.shuffle_idx)=}',
+                         '-------------------------------------------------']
+                    )
+                )
+                print_json(
+                    json.dumps(
+                        {
+                            'doc_idx': len(self.doc_idx),
+                            'sample_idx': len(self.sample_idx),
+                            'shuffle_idx': len(self.shuffle_idx),
+                        },
+                        indent=4,
+                    )
+                )
         # Start and end documents and offsets.
         doc_index_f = self.sample_idx[idx][0]
         doc_index_l = self.sample_idx[idx + 1][0]
@@ -283,9 +375,11 @@ class GPTDataset(torch.utils.data.Dataset):
         doc_ids = []
         if doc_index_f == doc_index_l:
             doc_ids.append(self.doc_idx[doc_index_f])
-            sample = self.indexed_dataset.get(self.doc_idx[doc_index_f],
-                                              offset=offset_f,
-                                              length=offset_l - offset_f + 1)
+            sample = self.indexed_dataset.get(
+                self.doc_idx[doc_index_f],
+                offset=offset_f,
+                length=offset_l - offset_f + 1
+            )
         else:
             # Otherwise, get the rest of the initial document.
             doc_ids.append(self.doc_idx[doc_index_f])
