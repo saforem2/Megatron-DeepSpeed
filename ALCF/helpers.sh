@@ -1284,6 +1284,31 @@ $flops_profiler
 EOT
 }
 
+#####################
+# train
+#####################
+train() {
+    # 1. Navigate into `$PBS_O_WORKDIR` <-- [should be Megatron-Deepspeed]
+    cd "${PBS_O_WORKDIR}" || exit
+    HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
+    # 2. source `ALCF/helpers.sh` <-- [should be ./ALCF/helpers.sh]
+    source "${HERE}/ALCF/helpers.sh" || exit
+    # 3. call `setup` from `./ALCF/helpers.sh`
+    export DATA_FILE_LIST="${HERE}/ALCF/data-lists/$(get_machine_name)/books.txt"
+    setup || exit
+    # 4. Take custom args
+    export custom_args=" $@"
+    # 5. Update ${run_cmd} (from setup ALCF/helpers.sh) with ${custom_args}
+    export run_cmd="${run_cmd} ${custom_args}"
+    # 6. Add "${run_cmd}" to output log
+    echo "${run_cmd}" | tee -a "${OUTPUT_LOG}"
+    # 7. Tell user where to find output
+    printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
+    # 8. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
+    eval "${run_cmd}" |& tee -a "${OUTPUT_LOG}"
+    set +x
+}
+
 ###############################################
 # Helper functions for printing colored text
 ###############################################
