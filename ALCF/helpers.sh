@@ -83,37 +83,39 @@ helpers_main() {
 #     14. Setup run command to be executed.
 ##############################################################################
 setup() {
-    #  1. Identify machine we're on
+    # Identify machine we're on
     get_machine || exit
-    #  2. Load `conda` environment, setup virtual env
+    # Load `conda` environment, setup virtual env
     setup_python || exit
-    #  3. Ensure necessary dependencies all installed
+    # Ensure necessary dependencies all installed
     install_dependencies || exit
-    #  4. Determine WORLD_SIZE, etc. from `PBS_*` vars
-    setup_ezpz || exit
-    #  5. Set command line arguments to pass to `"${EXEC}"`
+    # Determine WORLD_SIZE, etc. from `PBS_*` vars
+    ezpz_setup "$@" || exit
+    # Ensure `ezpz` installed into python environment
+    ezpz_install || exit
+    # Set command line arguments to pass to `"${EXEC}"`
     setParams || exit
-    #  6. Create `deepspeed_config.json` from runtime params from ^
+    # Create `deepspeed_config.json` from runtime params from ^
     buildDSconfig || exit
-    #  7. Specify output directory for {logs, checkpoints, etc.}
+    # Specify output directory for {logs, checkpoints, etc.}
     setOutput || exit
-    #  8. Specify additional `deepspeed` arguments (dependent on _newly created_ variables)
+    # Specify additional `deepspeed` arguments (dependent on _newly created_ variables)
     setArgs || exit
-    #  9. Ensure executable exists in expected path
-    export EXEC="${EXEC:-${HERE}/pretrain_gpt_alcf.py}"
-    check_executable "${EXEC}"
+    # Ensure executable exists in expected path
+    # export EXEC="${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
+    check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
     dfl="${DATA_FILE_LIST:-}"
-    # 10. Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
+    # Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
     tok="${TOKENIZER_TYPE:-Llama2}"
     setup_tokenizer_and_data "${tok}" "${dfl}" || exit
     make_data || exit
-    # 11. Print job info
+    # Print job info
     printJobInfo || exit
-    # 12. Save `.env` to `CKPT_DIR` for safe keeping
+    # Save `.env` to `CKPT_DIR` for safe keeping
     save_dotenv "${CKPT_DIR}" || exit
-    # 13. Check that were not already running, if so, exit.
+    # Check that were not already running, if so, exit.
     check_and_kill_if_running || exit
-    # 14. Setup run command to be executed
+    # Setup run command to be executed
     setup_run_cmd || exit
 }
 
@@ -324,6 +326,7 @@ setupLauncher() {
         make_ds_hostfile || exit
         export LAUNCHER="deepspeed --hostfile $hfds --launcher MPICH ${EXEC}"
     else
+
         if [[ -n "${DIST_LAUNCH}" ]]; then
             LAUNCHER="${DIST_LAUNCH} --genvall $(which python3) -Wignore ${EXEC}"
             export LAUNCHER="${LAUNCHER}"
@@ -333,7 +336,6 @@ setupLauncher() {
             echo "[setupLauncher][ERROR]: DIST_LAUNCH not found in environment !!"
         fi
     fi
-
     printf "Launching with: %s\n" "$(printRed "${dist_launcher}")"
     printf " %s" "$(printMagenta "${LAUNCHER}")"
 }
@@ -592,31 +594,40 @@ ezpz_getjobenv() {
 }
 
 ###########################################
-# setup_ezpz
+# ezpz_setup
 #
-# 1. {save,get}jobenv
-# 2. python3 -m ezpz.jobs && source "./.jobenv"
-# 2. Install ezpz (if not installed)
+# 1. source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/utils.sh)
+# 2. call `setup_alcf` (provided by `ezpz/utils.sh` from 1.)
 ###########################################
-setup_ezpz() {
-    if [[ -n "${HOSTFILE:-${PBS_NODEFILE}}" ]]; then
-        ezpz_savejobenv
-    else
-        ezpz_getjobenv
-    fi
+ezpz_setup() {
+    # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
+    source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/utils.sh" && setup_alcf "$@" || exit
+    # setup_alcf "$@"
+    # file=$(mktemp)
+    # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
+    # source "${file}" || exit
+}
+
+###########################################
+# ezpz_install
+#
+# Install ezpz (if not installed)
+###########################################
+ezpz_install() {
     ezdir="${WORKING_DIR}/deps/ezpz"
     if [[ ! -d "${ezdir}" ]]; then
         mkdir -p "${WORKING_DIR}/deps"
         git clone https://github.com/saforem2/ezpz "${WORKING_DIR}/deps/ezpz"
     fi
+    # source "${ezdir}/utils.sh" && setup_alcf "$@" || exit
     ezloc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
     if [[ -z "${ezloc:-}" ]]; then
-        printf "[setup_ezpz] Installing ezpz from %s\n" "${ezdir}"
+        printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
         python3 -m pip install -e "${ezdir}" --require-virtualenv
     else
-        printf "[setup_ezpz] Found ezpz @ %s\n" "${ezloc}"
+        printf "[ezpz_install] Found ezpz @ %s\n" "${ezloc}"
     fi
-    python3 -m ezpz.jobs && source "./.jobenv"
+    # python3 -m ezpz.jobs && source "./.jobenv"
     # ezloc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
     # if [[ -n "${ezloc}" ]]; then
     #     # ezpz_savejobenv
@@ -746,6 +757,11 @@ make_data() {
 }
 
 
+##############################################################################
+# install_dependencies
+#
+# Ensure all dependencies installed from `ALCF/requirements/requirements.txt`
+##############################################################################
 install_dependencies() {
     depsfile="${WORKING_DIR}/ALCF/requirements/requirements.txt"
     echo "Ensuring all dependencies from ${depsfile} installed..."
@@ -761,7 +777,9 @@ install_dependencies() {
 }
 
 ######################################################################
-# install_deepspeed_for_xpu: Install microsoft/DeepSpeed on PVC
+# install_deepspeed_for_xpu
+#
+# Install microsoft/DeepSpeed on PVC
 #
 # This will:
 # 1. Clone rep
@@ -916,18 +934,18 @@ setup_venv_from_conda() {
 check_executable() {
     fp=$1
     if [[ -f "${fp}" ]]; then
-        export EXEC="${EXEC}"
+        export EXEC="${fp}"
         # ----[1.5 Keep track of stem from file path]-------------------------
         exec_stem=$(echo "${EXEC}" | tr "\/" "\t" | awk '{print $NF}' | sed "s/\.py//g")
         export EXEC_STEM="${exec_stem}"
     else
         estr="Unable to locate executable ${fp}"
-        printf "[ALCF.helpers:check_executable] %s" "$(printRed "${estr}")"
+        printf "[ALCF.helpers:check_executable] %s\n" "$(printRed "${estr}")"
     fi
 }
 
 ##############################################################################
-# `setup_python`:
+# setup_python
 #
 # 1. Setup `conda`
 #    - if `conda` nonempty, and `venv` empty, use `conda` to setup `venv`.
@@ -1062,9 +1080,10 @@ setup_tokenizer_and_data() {
 }
 
 ###############################################
-# `setData`:
-#     Ensure `DATA_FILE_LIST` is set,
-#     fallback to default values if necessary.
+# setData
+#
+# Ensure `DATA_FILE_LIST` is set,
+# fallback to default values if necessary.
 ###############################################
 setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     ####### [Set DATA_FILE_LIST_FALLBACK based on current machine] #############
@@ -1094,7 +1113,6 @@ setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     ndocs=$(wc -l < "${dfl}")
     ws=$(sumWeights "${dfl}")
     dfl_stem=$(echo "${dfl}" | tr "\/" "\t" | awk '{print $NF}' | sed "s/\.txt//g")
-    # dcp="${OUTPUT_PREFIX:-$(get_output_prefix)}/.cache/${dfl_stem}/index-cache"
     dcp=".cache/${dfl_stem}/index-cache"
     export DATA_FILE_LIST="${dfl}"
     export NUM_DOCS="${ndocs}"
@@ -1111,30 +1129,26 @@ setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     printf "DATA_CACHE_PATH: %s\n" "${DATA_CACHE_PATH}"
     printf "DATA_FLAGS: %s\n" "${DATA_FLAGS}"
     echo "--------------------"
-    # fi
-    # export DATA_FLAGS="${DATA_FLAGS}"
-    # export TOKENIZER_FLAGS="${TOKENIZER_FLAGS}"
-    # printf "[setData] DATA_FLAGS: %s\n" "$(printGreen ${DATA_FLAGS})"
-    # printf "[setData] TOKENIZER_FLAGS: %s\n" "$(printMagenta ${TOKENIZER_FLAGS})"
 }
 
 ################################################################################
-# generateDSconfig: Create and save a deepspeed config .json
+# generateDSconfig
+#
+# Create and save a deepspeed config .json
 #
 # This will contain the appropriate variables as set in the current environment.
 ################################################################################
 generateDSconfig() {
-    for v in "$GLOBAL_BATCH" "$MICRO_BATCH" "$GRAD_ACC_STEPS" "$ZERO_STAGE" "$PP" "$DTYPE"
-    do
-      if [ -z "$v" ]; then
-        echo "Please export required envs before execute $0"
-        exit 1
-      fi
-    done
     if [ $# -ne 1 ]; then
       echo "Usage: $0 config_file"
       exit 1
     fi
+    for v in "$GLOBAL_BATCH" "$MICRO_BATCH" "$GRAD_ACC_STEPS" "$ZERO_STAGE" "$PP" "$DTYPE"; do
+        if [ -z "$v" ]; then
+            echo "Please export required envs before execute $0"
+            exit 1
+        fi
+    done
     # \"optimizer\": {
     #   \"type\": \"AdamW\",
     #   \"params\": {
@@ -1176,103 +1190,100 @@ generateDSconfig() {
           \"output_file\": null
         }"
     if [[ $DTYPE == "bf16" ]]; then
-    dtype="\
-        \"communication_data_type\": \"bf16\",
-        \"fp16\": {
-          \"enabled\": false,
-          \"loss_scale\": 0,
-          \"loss_scale_window\": 1000,
-          \"hysteresis\": 2,
-          \"min_loss_scale\": 1
-        },
-        \"bfloat16\": {
-          \"enabled\": true,
-          \"loss_scale\": 1.0
-        },"
+        dtype="\
+            \"communication_data_type\": \"bf16\",
+            \"fp16\": {
+              \"enabled\": false,
+              \"loss_scale\": 0,
+              \"loss_scale_window\": 1000,
+              \"hysteresis\": 2,
+              \"min_loss_scale\": 1
+            },
+            \"bfloat16\": {
+              \"enabled\": true,
+              \"loss_scale\": 1.0
+            },"
     elif [[ $DTYPE == "fp16" ]]; then
-    dtype="\
-        \"communication_data_type\": \"fp16\",
-        \"fp16\": {
-          \"enabled\": true,
-          \"loss_scale\": 0,
-          \"loss_scale_window\": 1000,
-          \"hysteresis\": 2,
-          \"min_loss_scale\": 1
-        },
-        \"bfloat16\": {
-          \"enabled\": false,
-          \"loss_scale\": 1.0
-        },"
+        dtype="\
+            \"communication_data_type\": \"fp16\",
+            \"fp16\": {
+              \"enabled\": true,
+              \"loss_scale\": 0,
+              \"loss_scale_window\": 1000,
+              \"hysteresis\": 2,
+              \"min_loss_scale\": 1
+            },
+            \"bfloat16\": {
+              \"enabled\": false,
+              \"loss_scale\": 1.0
+            },"
     else
-      dtype="\"communication_data_type\": \"fp32\","
+        dtype="\"communication_data_type\": \"fp32\","
     fi
-    if [ "$ZERO_STAGE" == 3 ]; then
-    zero="\
-        \"zero_optimization\": {
-          \"stage\": 3,
-          \"reduce_scatter\": false,
-          \"mics_shard_size\": 4,
-          \"mics_hierarchical_params_gather\": true,
-          \"stage3_max_live_parameters\": 3e9,
-          \"stage3_max_reuse_distance\": 3e9,
-          \"stage3_param_persistence_threshold\": 1e5,
-          \"stage3_prefetch_bucket_size\": 5e7,
-          \"contiguous_gradients\": true,
-          \"overlap_comm\": true,
-          \"reduce_bucket_size\": 90000000,
-          \"sub_group_size\": 1e9,
-          \"offload_optimizer\": {
-            \"device\": \"none\",
-            \"buffer_count\": 4,
-            \"pipeline_read\": false,
-            \"pipeline_write\": false,
-            \"pin_memory\": true
-          }
-        },"
+    if [[ "${ZERO_STAGE}" == 3 ]]; then
+              # \"mics_shard_size\": 2,
+        zero="\
+            \"zero_optimization\": {
+              \"stage\": 3,
+              \"reduce_scatter\": false,
+              \"mics_hierarchical_params_gather\": true,
+              \"stage3_max_live_parameters\": 3e9,
+              \"stage3_max_reuse_distance\": 3e9,
+              \"stage3_param_persistence_threshold\": 1e5,
+              \"stage3_prefetch_bucket_size\": 5e7,
+              \"contiguous_gradients\": true,
+              \"overlap_comm\": true,
+              \"reduce_bucket_size\": 90000000,
+              \"sub_group_size\": 1e9,
+              \"offload_optimizer\": {
+                \"device\": \"none\",
+                \"buffer_count\": 4,
+                \"pipeline_read\": false,
+                \"pipeline_write\": false,
+                \"pin_memory\": true
+              }
+            },"
     # elif [[ $ZERO_STAGE == 2 ]]; then
-    elif [ "${ZERO_STAGE}" == 2 ] || [ "${ZERO_STAGE}" == 1 ]; then
-    # if [[ -n "${CPU_OPTIMIZER}" ]]; then
-    if [[ "${CPU_OPTIMIZER:-0}" != 0 ]]; then
-    echo "!!!! CAUGHT CPU_OPTIMIZER !!!!"
-    zero="\
-        \"zero_optimization\": {
-            \"stage\": $ZERO_STAGE,
-            \"offload_optimizer\": {
-              \"device\": \"cpu\"
-            }
-        },"
+    elif [[ "${ZERO_STAGE}" == 2  || "${ZERO_STAGE}" == 1 ]]; then
+        # if [[ -n "${CPU_OPTIMIZER}" ]]; then
+        if [[ "${CPU_OPTIMIZER:-0}" != 0 ]]; then
+            echo "!!!! CAUGHT CPU_OPTIMIZER !!!!"
+            zero="\
+                \"zero_optimization\": {
+                    \"stage\": $ZERO_STAGE,
+                    \"offload_optimizer\": {
+                      \"device\": \"cpu\"
+                    }
+                },"
+        else
+            zero="\
+                \"zero_optimization\": {
+                  \"stage\": $ZERO_STAGE
+                },"
+        fi
+        if [[ "${PP}" -gt 1 ]]; then
+            extra="\
+                \"data_types\": {
+                \"grad_accum_dtype\": \"fp32\"
+              },
+              \"comms_logger\": {
+                \"enabled\": true,
+                \"verbose\": false,
+                \"prof_all\": true,
+                \"debug\": false
+              },"
+        else
+            extra="\
+                \"comms_logger\": {
+                \"enabled\": true,
+                \"verbose\": false,
+                \"prof_all\": true,
+                \"debug\": false
+              },"
+        fi
     else
-    zero="\
-        \"zero_optimization\": {
-          \"stage\": $ZERO_STAGE
-        },"
+        echo 'Please add the correct config set!!!'
     fi
-    # elif [[ $ZERO_STAGE == 1 ]]; then
-    if [[ "${PP}" -gt 1 ]]; then
-      extra="\
-          \"data_types\": {
-            \"grad_accum_dtype\": \"fp32\"
-          },
-          \"comms_logger\": {
-            \"enabled\": true,
-            \"verbose\": false,
-            \"prof_all\": true,
-            \"debug\": false
-          },"
-    else
-      # echo 'please add the config for zero_stage 1 without pipeline-parallelism'
-      extra="\
-          \"comms_logger\": {
-            \"enabled\": true,
-            \"verbose\": false,
-            \"prof_all\": true,
-            \"debug\": false
-          },"
-    fi
-    else
-      echo 'Please add the correct config set!!!'
-    fi
-# flops_profiler must at the end because no ',' is allowed at the end
 cat <<EOT > "$1"
 {
 $common
@@ -1284,30 +1295,30 @@ $flops_profiler
 EOT
 }
 
-#####################
-# train
-#####################
-train() {
-    # 1. Navigate into `$PBS_O_WORKDIR` <-- [should be Megatron-Deepspeed]
-    cd "${PBS_O_WORKDIR}" || exit
-    HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
-    # 2. source `ALCF/helpers.sh` <-- [should be ./ALCF/helpers.sh]
-    source "${HERE}/ALCF/helpers.sh" || exit
-    # 3. call `setup` from `./ALCF/helpers.sh`
-    export DATA_FILE_LIST="${HERE}/ALCF/data-lists/$(get_machine_name)/books.txt"
-    setup || exit
-    # 4. Take custom args
-    export custom_args=" $@"
-    # 5. Update ${run_cmd} (from setup ALCF/helpers.sh) with ${custom_args}
-    export run_cmd="${run_cmd} ${custom_args}"
-    # 6. Add "${run_cmd}" to output log
-    echo "${run_cmd}" | tee -a "${OUTPUT_LOG}"
-    # 7. Tell user where to find output
-    printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
-    # 8. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
-    eval "${run_cmd}" |& tee -a "${OUTPUT_LOG}"
-    set +x
-}
+# #####################
+# # train
+# #####################
+# train() {
+#     # 1. Navigate into `$PBS_O_WORKDIR` <-- [should be Megatron-Deepspeed]
+#     cd "${PBS_O_WORKDIR}" || exit
+#     HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
+#     # 2. source `ALCF/helpers.sh` <-- [should be ./ALCF/helpers.sh]
+#     source "${HERE}/ALCF/helpers.sh" || exit
+#     # 3. call `setup` from `./ALCF/helpers.sh`
+#     # export DATA_FILE_LIST="${HERE}/ALCF/data-lists/$(get_machine_name)/books.txt"
+#     setup || exit
+#     # 4. Take custom args
+#     export custom_args=" $@"
+#     # 5. Update ${run_cmd} (from setup ALCF/helpers.sh) with ${custom_args}
+#     export run_cmd="${run_cmd} ${custom_args}"
+#     # 6. Add "${run_cmd}" to output log
+#     echo "${run_cmd}" | tee -a "${OUTPUT_LOG}"
+#     # 7. Tell user where to find output
+#     printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
+#     # 8. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
+#     eval "${run_cmd}" |& tee -a "${OUTPUT_LOG}"
+#     set +x
+# }
 
 ###############################################
 # Helper functions for printing colored text
@@ -1343,15 +1354,6 @@ printCyan() {
 printWhite() {
     printf "\e[1;37m%s\e[0m\n" "$@"
 }
-
-export AURORA_GPT_HEADER="""
- █████╗ ██╗   ██╗██████╗  ██████╗ ██████╗  █████╗        ██████╗ ██████╗ ████████╗
-██╔══██╗██║   ██║██╔══██╗██╔═══██╗██╔══██╗██╔══██╗      ██╔════╝ ██╔══██╗╚══██╔══╝
-███████║██║   ██║██████╔╝██║   ██║██████╔╝███████║█████╗██║  ███╗██████╔╝   ██║
-██╔══██║██║   ██║██╔══██╗██║   ██║██╔══██╗██╔══██║╚════╝██║   ██║██╔═══╝    ██║
-██║  ██║╚██████╔╝██║  ██║╚██████╔╝██║  ██║██║  ██║      ╚██████╔╝██║        ██║
-╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝       ╚═════╝ ╚═╝        ╚═╝
-"""
 
 ###########################
 # call helpers_main()
