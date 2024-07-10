@@ -1,21 +1,17 @@
 #!/bin/bash --login
 
 ###############################################################################
-# `ALCF/helpers.sh`
-# <https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/ALCF/helpers.sh>
+# [`ALCF/helpers.sh`](https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/ALCF/helpers.sh)
 #
 # Contains helper functions for launching `../train_llama_alcf.sh`
 #
-# > [!NOTE]
-# > On any of {Polaris, Aurora, Sunspot} @ ALCF:
-# >
-# > ```bash
-# > $ git clone https://github.com/argonne-lcf/Megatron-DeepSpeed
-# > $ cd Megatron-DeepSpeed
-# > $ PBS_O_WORKDIR=$(pwd) source ALCF/helpers.sh
-# > # on any of {Polaris, Sunspot, Aurora} @ ALCF
-# > $ setup_python
-# > ```
+# To use, on any of {Polaris, Aurora, Sunspot} @ ALCF:
+#
+#     ```bash
+#     $ git clone https://github.com/argonne-lcf/Megatron-DeepSpeed
+#     $ cd Megatron-DeepSpeed
+#     $ export PBS_O_WORKDIR=$(pwd) && source ALCF/helpers.sh && ezpz_setup
+#     ```
 ##############################################################################
 
 ##################
@@ -29,7 +25,8 @@
 # ```
 #
 # - This will set `"${WORKING_DIR}"`, according to:
-#       1. `${PBS_O_WORKDIR}` is nonzero, use this
+#
+#       1. if `${PBS_O_WORKDIR}` is nonzero, use this
 #       2. else, if `${SLURM_SUBMIT_DIR}` is nonzero use this
 #       3. else, use `$(pwd)`
 #
@@ -38,7 +35,7 @@
 #   (e.g. virtual environment, location of executables, etc.)
 ##################
 helpers_main() {
-    # for debug mode, run with `DEBUG=1`
+    # NOTE: for debug mode, run with `DEBUG=1`
     if [[ -n "${DEBUG:-}" ]]; then
         set -euxo
     fi
@@ -61,44 +58,44 @@ helpers_main() {
 # All-in-one helper function.
 #
 # - Explicitly, this will:
-#      1. Identify the machine we're on
-#      2. Setup `python`
-#         1. Load `conda`
-#         2. Setup `venv` on top of `conda`
-#      3. Ensure all dependencies are installed
-#      4. Clone + Install [`saforem2/ezpz`](https://github.com/saforem2/ezpz)
-#         1. Additionally, call `source deps/ezpz/src/ezpz/bin/savejobenv`,
-#            which will automatically build a `alias launch=mpiexec ...`
-#            according to the specifics of our active job.
-#      5. Set runtime options
-#      6. Build `deepspeed_config.json`
-#      7. Build {logs, checkpoints, etc} dirs, named according to specifics of
-#         current run
-#      8. Specify additional `deepspeed` arguments
-#      9. Ensure executable exists at expected path
-#     10. Setup data + tokenizer via `TOKENIZER_TYPE`
-#     11. Print job info
-#     12. Save `.env` to `CKPT_DIR` for safe keeping
-#     13. Check that we're not already running, and if so, exit.
-#     14. Setup run command to be executed.
+#    - Identify the machine we're on
+#    - Setup `python`
+#       1. Load `conda`
+#       2. Setup `venv` on top of `conda`
+#    - Ensure all dependencies are installed
+#    - Clone + Install [`saforem2/ezpz`](https://github.com/saforem2/ezpz)
+#       1. Additionally, call `source deps/ezpz/src/ezpz/bin/savejobenv`,
+#          which will automatically build a `alias launch=mpiexec ...`
+#          according to the specifics of our active job.
+#    - Set runtime options
+#    - Build `deepspeed_config.json`
+#    - Build {logs, checkpoints, etc} dirs, named according to specifics of
+#       current run
+#    - Specify additional `deepspeed` arguments
+#    - Ensure executable exists at expected path
+#    - Setup data + tokenizer via `TOKENIZER_TYPE`
+#    - Print job info
+#    - Save `.env` to `CKPT_DIR` for safe keeping
+#    - Check that we're not already running, and if so, exit.
+#    - Setup run command to be executed.
 ##############################################################################
 setup() {
     # Identify machine we're on
     get_machine || exit
     ##########################################################################
     # ezpz_setup will:
-    #   1. Setup python
-    #       - load base conda
-    #       - (if necessary) create virtual environment on top of base conda
-    #       - activate virtual environment from ^
-    #   2. Install ezpz (if needed)
-    #   3. Parse PBS_* environment variables to determine:
-    #       - NHOSTS (by counting number of lines in $PBS_NODEFILE)
-    #       - NGPU_PER_HOST (by magic)
-    #       - NGPUS (= NHOSTS * NGPU_PER_HOST)
-    #   4. Use these (^) to build our launch command
-    ##########################################################################
+    # 1. Setup python
+    #     - load base conda
+    #     - (if necessary) create virtual environment on top of base conda
+    #     - activate virtual environment from ^
+    # 2. Install ezpz (if needed)
+    # 3. Parse PBS_* environment variables to determine:
+    #     - NHOSTS (by counting number of lines in $PBS_NODEFILE)
+    #     - NGPU_PER_HOST (by magic)
+    #     - NGPUS (= NHOSTS * NGPU_PER_HOST)
+    # 4. Use these (^) to build our launch command
     ezpz_setup "$@" || exit
+    ##########################################################################
     # Set command line arguments to pass to `"${EXEC}"`
     setParams || exit
     # Create `deepspeed_config.json` from runtime params from ^
@@ -108,7 +105,6 @@ setup() {
     # Specify additional `deepspeed` arguments (dependent on _newly created_ variables)
     setArgs || exit
     # Ensure executable exists in expected path
-    # export EXEC="${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
     check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
     dfl="${DATA_FILE_LIST:-}"
     # Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
@@ -130,7 +126,6 @@ setup() {
 #
 # Build run command to be executed.
 #####################################################
-    # --train-tokens ${TRAIN_TOKENS} \
 setup_run_cmd() {
     #### Make it easy to track experiments by date ###################
     year="$(date "+%Y")"
@@ -178,7 +173,6 @@ setup_run_cmd() {
         echo "!! Running in NO_LLAMA MODE !!"
         llama_flags=""
     fi
-        # --train-iters ${TRAIN_ITER} \
     export run_cmd="
         ${LAUNCHER} \
         --${DTYPE} \
@@ -211,13 +205,11 @@ setup_run_cmd() {
         ${ds_args} \
         ${gpt_args[*]}
         "
-        # ${LLAMA_ARGS} \
 }
 
 save_dotenv() {
     if [[ "$#" -ne 1 ]]; then
         estr="[error]"
-        # echo "Expected exactly one argument, specifying outputdir. Received $#"
         printf "%s Expected one argument (outdir). Received: %s" "$(printRed "${estr}")" "$#"
     else
         outdir="$1"
@@ -231,7 +223,15 @@ save_dotenv() {
 }
 
 ######################################################################
-# get_machine_name: Return current machine name, as lowercase string
+# get_machine_name:
+#
+# Return current machine name, as lowercase string
+#
+# Example:
+#   ```bash
+#   $ machine_name=$(get_machine_name)
+#   $ echo "machine_name: ${machine_name}"
+#   ```
 ######################################################################
 get_machine_name() {
     if [[ $(hostname) == x4* || $(hostname) == aurora* ]]; then
