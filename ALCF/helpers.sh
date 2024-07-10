@@ -85,13 +85,19 @@ helpers_main() {
 setup() {
     # Identify machine we're on
     get_machine || exit
-    # # Load `conda` environment, setup virtual env
-    # setup_python || exit
-    # # Ensure necessary dependencies all installed
-    # install_dependencies || exit
-    # # Ensure `ezpz` installed into python environment
-    # ezpz_install || exit
-    # Determine WORLD_SIZE, etc. from `PBS_*` vars
+    ##########################################################################
+    # ezpz_setup will:
+    #   1. Setup python
+    #       - load base conda
+    #       - (if necessary) create virtual environment on top of base conda
+    #       - activate virtual environment from ^
+    #   2. Install ezpz (if needed)
+    #   3. Parse PBS_* environment variables to determine:
+    #       - NHOSTS (by counting number of lines in $PBS_NODEFILE)
+    #       - NGPU_PER_HOST (by magic)
+    #       - NGPUS (= NHOSTS * NGPU_PER_HOST)
+    #   4. Use these (^) to build our launch command
+    ##########################################################################
     ezpz_setup "$@" || exit
     # Set command line arguments to pass to `"${EXEC}"`
     setParams || exit
@@ -124,6 +130,7 @@ setup() {
 #
 # Build run command to be executed.
 #####################################################
+    # --train-tokens ${TRAIN_TOKENS} \
 setup_run_cmd() {
     #### Make it easy to track experiments by date ###################
     year="$(date "+%Y")"
@@ -171,6 +178,7 @@ setup_run_cmd() {
         echo "!! Running in NO_LLAMA MODE !!"
         llama_flags=""
     fi
+        # --train-iters ${TRAIN_ITER} \
     export run_cmd="
         ${LAUNCHER} \
         --${DTYPE} \
@@ -181,8 +189,8 @@ setup_run_cmd() {
         --seq-length ${SEQ} \
         --num-layers ${NLAYERS} \
         --hidden-size ${HIDDEN} \
-        --train-iters ${TRAIN_ITER} \
         --tensorboard-dir ${TBDIR} \
+        --train-iters ${TRAIN_ITERS} \
         --eval-iters ${EVAL_ITERS} \
         --distributed-backend ${BE} \
         --num-attention-heads ${HEADS} \
@@ -482,7 +490,6 @@ setParams() {
     export MICRO_BATCH=${MICRO_BATCH:-8}                # MICRO BATCH SIZE
     export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}          # GRADIENT ACCUMULATION STEPS
     export EVAL_ITERS="${EVAL_ITERS:-10}"               # NUMBER OF EVAL ITERS TO RUN
-    export TRAIN_ITER=${TRAIN_ITER:-317892}             # NUMBER OF TRAIN ITERS
     export EVAL_INTERVAL="${EVAL_INTERVAL:-50000}"      # HOW FREQUENTLY TO RUN EVAL
     export SAVE_INTERVAL=${SAVE_INTERVAL:-50}           # HOW FREQUENTLY TO SAVE CKPTS
     export TIMING_LOG_LEVEL="${TIMING_LOG_LEVEL:-1}"    # TIMING VERBOSITY IN LOGS
@@ -490,10 +497,23 @@ setParams() {
     export USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING:-1}  # USE ACTIVATION CHECKPOINTING ?
     export GLOBAL_BATCH_MAX=$(( WORLD_SIZE * MICRO_BATCH * GRAD_ACC_STEPS / TP / PP  / SP ))  # MAX GLOBAL BATCH SIZE
     export GLOBAL_BATCH="${GLOBAL_BATCH:-${GLOBAL_BATCH_MAX}}"  # WILL USE MAX IF NOT SET IN ENVIRONMENT
-    # tm="${WORKING_DIR}/ALCF/tokenizer.model"            # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
-    # export TOKENIZER_MODEL="${TOKENIZER_MODEL:-${tm}}"  # USE TOKENIZER_MODEL from env, else fallback from ^
+    # export TRAIN_ITER=${TRAIN_ITER:-317892}             # NUMBER OF TRAIN ITERS
+    if [[ -z "${TRAIN_ITERS:-${TRAIN_ITER:-}}" ]]; then
+        export TRAIN_TOKENS=${TRAIN_TOKENS:-2000000000000}
+        export TRAIN_ITERS=$(( TRAIN_TOKENS / SEQ / GLOBAL_BATCH ))
+        printf "TRAIN_TOKENS=%s (=%sB tokens)\n" "${TRAIN_TOKENS}" "$(( TRAIN_TOKENS / 10**9 ))"
+        printf "TRAIN_ITERS=%s\n" "${TRAIN_ITERS}"
+    else
+        export TRAIN_ITERS="${TRAIN_ITERS:-${TRAIN_ITER:-}}"
+    fi
     export MODEL_TYPE="llama-gb${GLOBAL_BATCH}-seq${SEQ}-pp${PP}-tp${TP}-${NLAYERS}layers-${HEADS}heads-${HIDDEN}hidden"  # STRING FOR IDENTIFYING MODEL
-    # +----[ADDITIONAL LLAMA SPECIFIC ARGUMENTS]------------------------------
+    # NOTE: [2024-07-10] #####################################################
+    # - [sam]: For whatever reason, it seems that using
+    #   sequence-parallelism (SP) > 1 is INCOMPATIBLE with
+    #   rotary-position-embeddings (ROPE).
+    #
+    #   For this reason, we only use the default LLAMA_ARGS when SP=0.
+    ##########################################################################
     if [[ "${SP}" == 1 ]]; then
         export LLAMA_ARGS="${LLAMA_ARGS} --no-query-key-layer-scaling --use-rotary-position-embeddings --untie-embeddings-and-output-weights --swiglu --normalization rmsnorm --disable-bias-linear"
     else
@@ -503,7 +523,6 @@ setParams() {
     # -----[Learning Rate Settings]--------------------------------------------
     export LR=${LR:-0.0003}                             # LEARNING_RATE
     export LR_WARMUP_FRAC=${LR_WARMUP_FRAC:-0.05}       # LEARNING RATE WARMUP
-    # export LR_DECAY_ITERS=${LR_DECAY_ITERS:-320000}     # LR DECAY ITERS
     export LR_DECAY_ITERS=${LR_DECAY_ITERS:-}     # LR DECAY ITERS
     set_lr_args
     # -----[Learning Rate Settings]--------------------------------------------
@@ -623,15 +642,14 @@ ezpz_install() {
 # 2. call `setup_alcf` (provided by `ezpz/utils.sh` from 1.)
 ###########################################
 ezpz_setup() {
+    # setup_alcf "$@"
+    # file=$(mktemp)
+    # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
     # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
     source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/utils.sh" || exit  #  && setup_alcf "$@" || exit
     setup_python
     ezpz_install
     setup_alcf "$@"
-    # setup_alcf "$@"
-    # file=$(mktemp)
-    # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
-    # source "${file}" || exit
 }
 
 #######################################################################
