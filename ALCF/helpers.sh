@@ -357,10 +357,13 @@ set_lr_args() {
 #
 # - In particular, it seems that different node counts allow for different
 #   `MICRO_BATCH` sizes.
+#
 #   Explicitly:
-#       - [NHOSTS <= 3]: `MICRO_BATCH=1`
-#       - [NHOSTS >= 4]: `MICRO_BATCH=2`
-#       - [NHOSTS >= 8]: `MICRO_BATCH=4`
+#
+#       - [1 <= NHOSTS <= 2]: `MICRO_BATCH=1`
+#       - [3 <= NHOSTS <= 7]: `MICRO_BATCH=2`
+#       - [8 <= NHOSTS]:      `MICRO_BATCH=4`
+#
 #   are the largest batch sizes that fit in memory at various node counts.
 #########################################################################
 get_batch_size_on_polaris() {
@@ -368,7 +371,7 @@ get_batch_size_on_polaris() {
         nhosts=$(wc -l < "${HOSTFILE:-${PBS_NODEFILE}}")
         if [[ "${nhosts}" == 1  || "${nhosts}" == 2 ]]; then
             mbs=1
-        elif [[ "${nhosts}" -ge 3 ]]; then
+        elif [[ "${nhosts}" -ge 3 && "${nhosts}" -le 7 ]]; then
             mbs=2
         elif [[ "${nhosts}" -ge 8 ]]; then
             mbs=4
