@@ -381,7 +381,9 @@ get_batch_size_on_polaris() {
 
 
 ##############################################################################
-# `setParams`: Set / configure run options by parsing environment.
+# setParams
+#
+# Set / configure run options by parsing environment.
 #
 # - any of the declared options below can be overridden
 #     dynamically at runtime, e.g. to run with a `MICRO_BATCH` size of 2:
@@ -392,8 +394,8 @@ get_batch_size_on_polaris() {
 setParams() {
     FLASH_ARG=""
     LLAMA_ARGS="--attention-dropout 0 --hidden-dropout 0"
-    # +----[Parallelism Settings] -------------------------------------------+
-    # +------[Aurora]--------||-------[SunSpot]-------------+
+    # ---- [Parallelism Settings] -------------------------------------------+
+    # ------ [Aurora] -------||------ [SunSpot] -------------
     if [[ $(hostname) == x4* || $(hostname) == x1* ]]; then
         TP=${TP:-1}                      # TP = 1
         export SAVE_INTERVAL="${SAVE_INTERVAL:-20}"
@@ -405,7 +407,7 @@ setParams() {
         ######################################################################
         # !XXX: USE KEY VALUE STORE FIX ON AURORA [2024-06-20]
         # use_kvs_fix_on_aurora  # <-- why are these different from those in update_ccl_env_vars_aurora ??
-        update_ccl_env_vars_aurora
+        # update_ccl_env_vars_aurora
         ######################################################################
         if [[ -z "${USE_FLASH_ATTN:-}" ]]; then
             # NOTE: if NO_FLASH_ATTN is NON-empty; then NO FLASH ATTN !!
@@ -838,20 +840,28 @@ use_kvs_fix_on_aurora() {
 }
 
 update_ccl_env_vars_aurora() {
-    export CCL_KVS_MODE=mpi
-    # export CCL_CONFIGURATION_PATH=""
-    # unset CCL_CONFIGURATION_PATH
-    # export CCL_CONFIGURATION=cpu_gpu_dpcpp
-    # export CCL_ROOT="/flare/Aurora_deployment/intel/ccl/_install_release_2021_13"
-    export LD_LIBRARY_PATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/lib:$LD_LIBRARY_PATH
-    export CPATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/include:$CPATH
-    export LIBRARY_PATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/lib:$LIBRARY_PATH
-    # export CCL_ALLREDUCE_SCALEOUT=direct
-    printenv | grep -E -v "^__" | grep -E "CCL|LD|CPATH|LIBRARY_PATH"
+    # export CCL_KVS_MODE=mpi
+    # # export CCL_CONFIGURATION_PATH=""
+    # # unset CCL_CONFIGURATION_PATH
+    # # export CCL_CONFIGURATION=cpu_gpu_dpcpp
+    # # export CCL_ROOT="/flare/Aurora_deployment/intel/ccl/_install_release_2021_13"
+    # export LD_LIBRARY_PATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/lib:$LD_LIBRARY_PATH
+    # export CPATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/include:$CPATH
+    # export LIBRARY_PATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/lib:$LIBRARY_PATH
+    # # export CCL_ALLREDUCE_SCALEOUT=direct
+    # printenv | grep -E -v "^__" | grep -E "CCL|LD|CPATH|LIBRARY_PATH"
     #########################################################
     # if not set, CCL will complain... ?
     export NUMEXPR_MAX_THREADS="${NUMEXPR_MAX_THREADS:-16}"
     #########################################################
+    # Sam: [2024-06-29]
+    export CCL_KVS_MODE=mpi
+    export CCL_CONFIGURATION_PATH=""
+    export CCL_CONFIGURATION=cpu_gpu_dpcpp
+    export CCL_ROOT="/flare/Aurora_deployment/intel/ccl/_install_release_2021_13"
+    export LD_LIBRARY_PATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/lib:$LD_LIBRARY_PATH
+    export CPATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/include:$CPATH
+    export LIBRARY_PATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/lib:$LIBRARY_PATH
 }
 
 ###########################
