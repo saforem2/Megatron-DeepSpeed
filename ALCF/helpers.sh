@@ -85,14 +85,14 @@ helpers_main() {
 setup() {
     # Identify machine we're on
     get_machine || exit
-    # Load `conda` environment, setup virtual env
-    setup_python || exit
-    # Ensure necessary dependencies all installed
-    install_dependencies || exit
+    # # Load `conda` environment, setup virtual env
+    # setup_python || exit
+    # # Ensure necessary dependencies all installed
+    # install_dependencies || exit
+    # # Ensure `ezpz` installed into python environment
+    # ezpz_install || exit
     # Determine WORLD_SIZE, etc. from `PBS_*` vars
     ezpz_setup "$@" || exit
-    # Ensure `ezpz` installed into python environment
-    ezpz_install || exit
     # Set command line arguments to pass to `"${EXEC}"`
     setParams || exit
     # Create `deepspeed_config.json` from runtime params from ^
@@ -595,20 +595,6 @@ ezpz_getjobenv() {
     source "${file}" || exit
 }
 
-###########################################
-# ezpz_setup
-#
-# 1. source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/utils.sh)
-# 2. call `setup_alcf` (provided by `ezpz/utils.sh` from 1.)
-###########################################
-ezpz_setup() {
-    # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
-    source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/utils.sh" && setup_alcf "$@" || exit
-    # setup_alcf "$@"
-    # file=$(mktemp)
-    # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
-    # source "${file}" || exit
-}
 
 ###########################################
 # ezpz_install
@@ -621,7 +607,6 @@ ezpz_install() {
         mkdir -p "${WORKING_DIR}/deps"
         git clone https://github.com/saforem2/ezpz "${WORKING_DIR}/deps/ezpz"
     fi
-    # source "${ezdir}/utils.sh" && setup_alcf "$@" || exit
     ezloc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
     if [[ -z "${ezloc:-}" ]]; then
         printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
@@ -629,22 +614,24 @@ ezpz_install() {
     else
         printf "[ezpz_install] Found ezpz @ %s\n" "${ezloc}"
     fi
-    # python3 -m ezpz.jobs && source "./.jobenv"
-    # ezloc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
-    # if [[ -n "${ezloc}" ]]; then
-    #     # ezpz_savejobenv
-    #     # python3 -m ezpz.jobs && source "./.jobenv"
-    #     make_ds_hostfile || exit
-    # else
-    #     echo "No ezpz detected. Attempting to install with $(which python3)"
-    #     python3 -m pip install -e "${WORKING_DIR}/deps/ezpz" --require-virtualenv
-    # fi
-    # if [[ ! -d "${WORKING_DIR}/deps/ezpz" ]]; then
-    #     mkdir -p "${WORKING_DIR}/deps"
-    #     git clone https://github.com/saforem2/ezpz "${WORKING_DIR}/deps/ezpz"
-    # else
-    #     echo "Found ezpz!"
-    # fi
+}
+
+###########################################
+# ezpz_setup
+#
+# 1. source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/utils.sh)
+# 2. call `setup_alcf` (provided by `ezpz/utils.sh` from 1.)
+###########################################
+ezpz_setup() {
+    # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
+    source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/utils.sh" || exit  #  && setup_alcf "$@" || exit
+    setup_python
+    ezpz_install
+    setup_alcf "$@"
+    # setup_alcf "$@"
+    # file=$(mktemp)
+    # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
+    # source "${file}" || exit
 }
 
 #######################################################################
