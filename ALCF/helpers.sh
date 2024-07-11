@@ -96,6 +96,7 @@ setup() {
     # 4. Use these (^) to build our launch command
     ezpz_setup "$@" || exit
     ##########################################################################
+    install_dependencies
     # Set command line arguments to pass to `"${EXEC}"`
     setParams || exit
     # Create `deepspeed_config.json` from runtime params from ^
@@ -810,9 +811,9 @@ install_deepspeed_for_xpu() {
     git clone https://github.com/microsoft/DeepSpeed.git "${outdir}"
     cd "${outdir}" || exit
     echo "!! pwd: $(pwd)"
-    git remote add yizhou_ds https://github.com/YizhouZ/DeepSpeed.git
-    git fetch yizhou_ds
-    git checkout yizhou/kernel_path
+    # git remote add yizhou_ds https://github.com/YizhouZ/DeepSpeed.git
+    # git fetch yizhou_ds
+    # git checkout yizhou/kernel_path
     python3 -m pip install --require-virtualenv -r requirements/requirements.txt 1> /dev/null
     python3 -m pip install xgboost "numpy<2" --force-reinstall --upgrade --require-virtualenv 1> /dev/null
     python setup.py develop 1> /dev/null
