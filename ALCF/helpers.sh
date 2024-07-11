@@ -615,17 +615,26 @@ ezpz_getjobenv() {
 }
 
 
+####################
+# ezpz_clone
+# ##################
+ezpz_clone() {
+    ezdir="${WORKING_DIR}/deps/ezpz"
+    # if [[ ! -d "${ezdir}" ]]; then
+    if [[ -d "${ezdir}" ]]; then
+        echo "Found ezpz in ${ezdir}"
+    else
+        mkdir -p "${WORKING_DIR}/deps"
+        git clone https://github.com/saforem2/ezpz "${WORKING_DIR}/deps/ezpz"
+    fi
+}
+
 ###########################################
 # ezpz_install
 #
 # Install ezpz (if not installed)
 ###########################################
 ezpz_install() {
-    ezdir="${WORKING_DIR}/deps/ezpz"
-    if [[ ! -d "${ezdir}" ]]; then
-        mkdir -p "${WORKING_DIR}/deps"
-        git clone https://github.com/saforem2/ezpz "${WORKING_DIR}/deps/ezpz"
-    fi
     ezloc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
     if [[ -z "${ezloc:-}" ]]; then
         printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
@@ -646,6 +655,7 @@ ezpz_setup() {
     # file=$(mktemp)
     # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
     # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
+    ezpz_clone
     source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/utils.sh" || exit  #  && setup_alcf "$@" || exit
     setup_python
     ezpz_install
