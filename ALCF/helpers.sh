@@ -12,7 +12,14 @@
 #     $ cd Megatron-DeepSpeed
 #     $ export PBS_O_WORKDIR=$(pwd) && source ALCF/helpers.sh && ezpz_setup
 #     ```
-##############################################################################
+#
+# and this will, automatically:
+#
+# 1. Setup python (conda + virtual environment)
+#
+# 2. Parse `$PBS_*` env vars to build appropriate `alias launch='mpiexec ...'`
+#    command for launching across all GPUs in our active PBS job.
+###############################################################################
 
 ##################
 # helpers_main
@@ -104,7 +111,7 @@ setup() {
     # Specify output directory for {logs, checkpoints, etc.}
     setOutput || exit
     # Specify additional `deepspeed` arguments (dependent on _newly created_ variables)
-    setArgs || exit
+    set_args || exit
     # Ensure executable exists in expected path
     check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
     dfl="${DATA_FILE_LIST:-}"
@@ -140,8 +147,8 @@ setup_run_cmd() {
     export TODAY="${today}"
     export STARTED_AT="${started_at}"
     ##################################################################
-    # to launch with DeepSpeed instead of mpiexec, run with:
-    #       $ LAUNCH_WITH=deepspeed bash train_llama_alcf.sh
+    # NOTE: to launch with DeepSpeed instead of mpiexec:
+    # `export LAUNCH_WITH=deepspeeed && bash train_llama_alcf.sh`
     ##################################################################
     setupLauncher "${LAUNCH_WITH:-MPICH}" || exit
     TBDIR="${CKPT_DIR}/tensorboard"
@@ -163,8 +170,10 @@ setup_run_cmd() {
     if [[ "${SP}" -ge 2 ]]; then
         export DEFAULTS="${DEFAULTS} --ds-sequence-parallel-size ${SP} --force-ds-sequence-parallel"
     fi
-    # [hacky]: to disable Llama-type architectures, toggle via:
+    ##################################################################
+    # WARN: to disable Llama-type architectures, toggle via:
     # `NO_LLAMA=1 bash train_llama_alcf.sh`
+    ##################################################################
     if [[ -z "${NO_LLAMA:-}" ]]; then
         llama_flags="${LLAMA_ARGS}\
             --num-key-value-heads ${NUM_KV_HEAD} \
@@ -411,7 +420,7 @@ setParams() {
         export CCL=${CCL:-ccl}           # CCL
         export BE="${CCL}"               # COMMUNICATION BACKEND = CCL
         export DTYPE=${DTYPE:-bf16}      # DTYPE: bf16
-        export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-8}     # GRADIENT_ACC_STEPS
+        export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}     # GRADIENT_ACC_STEPS
         MICRO_BATCH=${MICRO_BATCH:-4}    # MICRO_BATCH = 4
         ######################################################################
         # !XXX: USE KEY VALUE STORE FIX ON AURORA [2024-06-20]
@@ -540,12 +549,12 @@ setParams() {
 
 
 ##############################################
-# setArgs
+# set_args
 #
 # Specify additional (DeepSpeed specific)
 # arguments to pass to pretrain_gpt_alcf.py
 ##############################################
-setArgs() {
+set_args() {
     # ---- Set DeepSpeed arguments --------------------------------
     ds_args=" "
     ds_args=" --deepspeed ${ds_args}"
@@ -591,76 +600,47 @@ make_ds_hostfile() {
     sed -e "s/$/ slots=${GPUS_PER_NODE}/" -i "${hostfile_deepspeed}"
 }
 
-####################
-# ezpz_savejobenv
-#
-# Parse relevant environment variables to determine:
-# - num_hosts (by counting the number of lines in ${HOSTFILE:-${PBS_NODEFILE}})
-# - num_gpus_per_host (magically[^1])
-# - num_gpus = (num_hosts * num_gpus_per_host)
-#
-# [^1]: See: [`ezpz/bin/savejobenv`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/savejobenv)
-####################
-ezpz_savejobenv() {
-    # source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/savejobenv" "$@"
-    file=$(mktemp)
-    curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/savejobenv > "${file}"
-    source "${file}" || exit
-}
-
-ezpz_getjobenv() {
-    # source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/getjobenv" "$@"
-    file=$(mktemp)
-    curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
-    source "${file}" || exit
-}
-
-
-####################
-# ezpz_clone
-# ##################
-ezpz_clone() {
-    ezdir="${WORKING_DIR}/deps/ezpz"
-    # if [[ ! -d "${ezdir}" ]]; then
-    if [[ -d "${ezdir}" ]]; then
-        echo "Found ezpz in ${ezdir}"
-    else
-        mkdir -p "${WORKING_DIR}/deps"
-        git clone https://github.com/saforem2/ezpz "${WORKING_DIR}/deps/ezpz"
-    fi
-}
-
-###########################################
-# ezpz_install
-#
-# Install ezpz (if not installed)
-###########################################
-ezpz_install() {
-    ezloc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
-    if [[ -z "${ezloc:-}" ]]; then
-        printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
-        python3 -m pip install -e "${ezdir}" --require-virtualenv
-    else
-        printf "[ezpz_install] Found ezpz @ %s\n" "${ezloc}"
-    fi
-}
 
 ###########################################
 # ezpz_setup
 #
-# 1. source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/utils.sh)
-# 2. call `setup_alcf` (provided by `ezpz/utils.sh` from 1.)
+# 1. Clone [`saforem2/ezpz`](https://github.com/saforem2/ezpz) (if necessary)
+#    to `"${WORKING_DIR}/deps/ezpz/"`
+#
+# 2. Source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
+#    - This provides `{ezpz_setup_python, ezpz_setup_alcf}` (called below)
+#
+# 3. Call `ezpz_setup_python`:
+#    - This will setup conda + virtual enviroment
+#
+# 4. Call `ezpz_setup_alcf`:
+#    - This will parse `$PBS_*` variables and build launch cmd
+#
+# 3. Call `_ezpz_install`:
+#    - Install ezpz from "${WORKING_DIR}/depz/ezpz/"
 ###########################################
 ezpz_setup() {
     # setup_alcf "$@"
     # file=$(mktemp)
     # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
     # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
-    ezpz_clone
-    source "${WORKING_DIR}/deps/ezpz/src/ezpz/bin/utils.sh" || exit  #  && setup_alcf "$@" || exit
-    setup_python
-    ezpz_install
-    setup_alcf "$@"
+    ezdir="${WORKING_DIR}/deps/ezpz"
+    if [[ -d "${ezdir}" ]]; then
+        echo "Found ezpz in ${ezdir}"
+    else
+        mkdir -p $(dirname "${ezdir}")
+        git clone https://github.com/saforem2/ezpz "${ezdir}"
+    fi
+    source "${ezdir}/src/ezpz/bin/utils.sh" || exit
+    ezpz_setup_python
+    ezpz_setup_alcf "$@"
+    ezpz_pip_loc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
+    if [[ -z "${ezpz_pip_loc:-}" ]]; then
+        printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
+        python3 -m pip install -e "${ezdir}" --require-virtualenv
+    else
+        printf "[ezpz_install] Found ezpz @ %s\n" "${ezpz_pip_loc}"
+    fi
 }
 
 #######################################################################
@@ -880,80 +860,6 @@ update_ccl_env_vars_aurora() {
     export LIBRARY_PATH=/flare/Aurora_deployment/intel/ccl/_install_release_2021_13/lib:$LIBRARY_PATH
 }
 
-###########################
-# Setup conda on Aurora
-###########################
-setup_conda_aurora() {
-    if [[ -z "${CONDA_PREFIX:-}" ]]; then
-        module use -a /soft/modulefiles ; module load frameworks/2024.1
-    fi
-}
-
-########################
-# Setup conda on Sirius
-########################
-setup_conda_sirius() {
-    if [[ -z "${CONDA_PREFIX-}" && -z "${VIRTUAL_ENV-}" ]]; then
-        export MAMBA_ROOT_PREFIX=/lus/tegu/projects/PolarisAT/foremans/micromamba
-        shell_name=$(echo "${SHELL}" | tr "\/" "\t" | awk '{print $NF}')
-        eval "$("${MAMBA_ROOT_PREFIX}/bin/micromamba" shell hook --shell "${shell_name}")"
-        micromamba activate 2024-04-23
-    else
-        echo "Found existing python at: $(which python3)"
-    fi
-}
-
-########################
-# Setup conda on Polaris
-########################
-setup_conda_polaris() {
-    # unset MPICH_GPU_SUPPORT_ENABLED
-    ###### check if CONDA_PREFIX non-empty ################
-    if [[ -z "${CONDA_PREFIX-}" ]]; then
-        # if so, load the default conda/2024-04-29
-        # module and activate base environment
-        module use /soft/modulefiles ; module load conda ; conda activate base
-    else
-        echo "Caught CONDA_PREFIX=${CONDA_PREFIX}"
-    fi
-}
-
-########################
-# setup_venv_from_conda
-#
-# Build (if necessary) a virtual environment
-# on top of the active conda and
-# activate it.
-# ######################
-setup_venv_from_conda() {
-    if [[ -z "${CONDA_PREFIX}" ]]; then
-        echo "!! No ${CONDA_PREFIX} found."  #  Exiting."
-        # exit 1
-    else
-        echo "Found conda at: ${CONDA_PREFIX}"
-        CONDA_NAME=$(echo "${CONDA_PREFIX}" | tr '\/' '\t' | sed -E 's/mconda3|\/base//g' | awk '{print $NF}')
-        export CONDA_NAME
-        if [[ -z "${VIRTUAL_ENV}" ]]; then
-            echo "No VIRTUAL_ENV found in environment!"
-            echo "    - Trying to setup from ${CONDA_PREFIX}"
-            export VENV_DIR="${WORKING_DIR}/venvs/${CONDA_NAME}"
-            echo "    - Using VENV_DIR=${VENV_DIR}"
-            if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
-                printf "\n    - Creating a new virtual env on top of %s in %s\n" "$(printBlue "${CONDA_NAME}")" "$(printGreen "${VENV_DIR}")"
-                mkdir -p "${VENV_DIR}"
-                python3 -m venv "${VENV_DIR}" --system-site-packages
-                source "${VENV_DIR}/bin/activate" || exit
-            elif [[ -f "${VENV_DIR}/bin/activate" ]]; then
-                echo "    - Found existing venv, activating from $(printBlue "${VENV_DIR}")"
-                source "${VENV_DIR}/bin/activate"
-            else
-                printf "\n    [!! %s]: Unable to locate %s\n" "$(printRed "ERROR")" "$(printMagenta "${VENV_DIR}/bin/activate")"
-            fi
-        fi
-    fi
-
-}
-
 ##########################################################
 # Check that we can find the `.py` file we wish to launch
 ##########################################################
@@ -970,79 +876,6 @@ check_executable() {
     fi
 }
 
-##############################################################################
-# setup_python
-#
-# 1. Setup `conda`
-#    - if `conda` nonempty, and `venv` empty, use `conda` to setup `venv`.
-#    - if `venv` nonempty, and `conda` empty, what do (???)
-#    - if `venv` nonempty and `conda` nonempty, use these
-#    - if `conda` empty and `venv` empty:
-#       - if `hostname == x4*`, we're on Aurora
-#       - if `hostname == x1*`, we're on Sunspot
-#       - if `hostname == x3*`, we're on Polaris
-#       - if `hostname == nid*`, we're on Perlmutter
-#       - otherwise, you're on you're own
-#
-# 2. Activate (creating, if necessary) a `venv` on top of `base` conda
-#    - use the $CONDA_PREFIX to create a venv in
-#      `Megatron-DeepSpeed/venvs/${CONDA_PREFIX}`
-#      - activate and use this
-#
-# 3. Print info about which python we're using
-##############################################################################
-setup_python() {
-    virtual_env="${VIRTUAL_ENV:-}"
-    conda_prefix="${CONDA_PREFIX:-}"
-    if [[ -z "${conda_prefix}" && -z "${virtual_env}" ]]; then
-        echo "No conda_prefix OR virtual_env found in environment..."
-        echo "Setting up conda..."
-        machine_name=$(get_machine_name)
-        echo "machine name: ${machine_name}"
-        # if [[ $(hostname) == x4* || $(hostname) == aurora* ]]; then
-        if [[ "${machine_name}" == "aurora" ]]; then
-            setup_conda_aurora
-        # elif [[ $(hostname) == x1* || $(hostname) == uan* ]]; then
-        elif [[ "${machine_name}" == "sunspot" ]]; then
-            setup_conda_sunspot
-        # elif [[ $(hostname) == x3*  || $(hostname) == polaris* ]]; then
-        elif [[ "${machine_name}" == "polaris" ]]; then
-            if [[ "${PBS_O_HOST:-}" == sirius* ]]; then
-                setup_conda_sirius
-            else
-                setup_conda_polaris
-            fi
-        elif [[ $(hostname) == login* || $(hostname) == nid* ]]; then
-            echo "Running on Perlmutter !!"
-            module load pytorch
-            source "${SLURM_SUBMIT_DIR}/venvs/perlmutter/pytorch-2.1.0-cu12/bin/activate"
-        else # ------------------------------------- [Unknown] -------------------
-            echo "Unknown hostname $(hostname)"
-            exit 1
-        fi
-        # # ----- [Perlmutter @ NERSC] -------------------------------------
-    elif [[ -n "${conda_prefix}" && -z "${virtual_env}" ]]; then
-        echo "No virtual environment found."
-        echo "Using conda from: ${conda_prefix}"
-        echo "Setting up venv from ${CONDA_PROMPT_MODIFIER:-}"
-        setup_venv_from_conda
-    elif [[ -n "${virtual_env}" && -z "${conda_prefix}" ]]; then
-        echo "No conda found."
-        echo "Using virtual_env from: ${virtual_env}"
-    elif [[ -n "${virtual_env}" && -n "${conda_prefix}" ]]; then
-        echo "Using virtual_env: ${virtual_env} on top of conda from: ${conda_prefix}"
-    else
-        echo "Unable to setup python environment. Exiting"
-        exit 1
-    fi
-    if [[ -z "${virtual_env}" ]]; then
-        setup_venv_from_conda
-    fi
-    pystr="Using: $(which python3)"
-    printf "[python] %s" "$(printMagenta "${pystr}")"
-    printf "\n"
-    export "PYTHON_EXEC=$(which python3)"
-}
 
 ######################################################################
 # `makeHostiles`:
