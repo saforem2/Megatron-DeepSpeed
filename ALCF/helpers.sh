@@ -346,7 +346,7 @@ setupLauncher() {
     else
 
         if [[ -n "${DIST_LAUNCH}" ]]; then
-            LAUNCHER="${DIST_LAUNCH} --genvall $(which python3) -Wignore ${EXEC}"
+            LAUNCHER="${DIST_LAUNCH} --pmi=pmix --genvall $(which python3) -Wignore ${EXEC}"
             export LAUNCHER="${LAUNCHER}"
         else
             echo "[setupLauncher][INFO]: Saving environment to: .env-${PBS_JOBID}"
@@ -397,6 +397,51 @@ get_batch_size_on_polaris() {
     echo "${mbs}"
 }
 
+get_grad_acc_steps_on_aurora() {
+    if [[ "$#" == 0 ]]; then
+        local hf="${HOSTFILE:-${PBS_NODEFILE:-$(ezpz_get_pbs_nodefile_from_hostname)}}"
+    elif [[ "$#" == 1 ]]; then
+        local hf="$1"
+    else
+        echo "Expected exactly 0 or 1 arguments, received: $#"
+        exit 1
+    fi
+    nhosts=$(wc -l < "${hf}")
+    # NOTE:
+    # |  nhosts          |   nhosts   |  GAS  |
+    # |:----------------:|:----------:|:-----:|
+    # |        n <= 32   | [0, 32]    |   8   |
+    # | 32   < n  < 64   | (32, 64)   |   4   |
+    # | 64  <= n  < 128  | [64, 128)  |   2   |
+    # | 128 <= n  < inf  | [128, inf) |   1   |
+    if [[ 128 -le "${nhosts}" ]]; then
+        gas=1
+    elif [[ 64 -le "${nhosts}" && "${nhosts}" -lt 128 ]]; then
+        gas=2
+    # 32 <= nhosts < 64
+    elif [[ 32 -le "${nhosts}" && "${nhosts}" -lt 64 ]]; then
+        gas=4
+    # nhosts <= 16
+    # elif [[ "${nhosts}" -lt 32 ]]; then
+    #     gas=8
+    else
+        gas=8
+    fi
+    # if [[ "${nhosts}" > 512 ]]; then
+    #     gas=1
+    # # elif [[ 256 <= "${nhosts}" && "${nhosts}" <= 512 ]]; then
+    # elif [[ 256 -le "${nhosts}" && "${nhosts}" -le 512 ]]; then
+    # elif [[ 128 < "${nhosts}" && "${nhosts}" <= 256 "${nhosts}" ]]; then
+    #     gas=2
+    # # elif [[ 128 < "${nhosts}" && "${nhosts}" < 256 ]]; then
+    # elif [[ 64 <= "${nhosts}" && "${nhosts}" <= 128 -lt "${nhosts}" ]]; then
+    #     gas=2
+    # else
+    #     gas=8
+    # fi
+    echo "${gas}"
+}
+
 
 ##############################################################################
 # setParams
@@ -420,8 +465,11 @@ setParams() {
         export CCL=${CCL:-ccl}           # CCL
         export BE="${CCL}"               # COMMUNICATION BACKEND = CCL
         export DTYPE=${DTYPE:-bf16}      # DTYPE: bf16
-        export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}     # GRADIENT_ACC_STEPS
+        # export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}     # GRADIENT_ACC_STEPS
+        export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-$(get_grad_acc_steps_on_aurora)}"
         MICRO_BATCH=${MICRO_BATCH:-4}    # MICRO_BATCH = 4
+        export CCL_PROCESS_LAUNCHER=pmix
+        export CCL_ATL_TRANSPORT=mpi
         ######################################################################
         # !XXX: USE KEY VALUE STORE FIX ON AURORA [2024-06-20]
         # use_kvs_fix_on_aurora  # <-- why are these different from those in update_ccl_env_vars_aurora ??
@@ -479,7 +527,7 @@ setParams() {
     export SP="${SP:-1}"
     export FLASH_ARG="${FLASH_ARG}"
     export DTYPE="${DTYPE:-bf16}"
-    export OPT="${OPT:-adamw}"
+    export OPT="${OPT:-adamwschedulefree}"
     export HOSTFILE="${HOSTFILE:-${PBS_NODEFILE}}"
     NHOSTS=$(wc -l < "${HOSTFILE}")
     if [[ -z "${NGPU_PER_HOST:-}" ]]; then
@@ -762,15 +810,15 @@ make_data() {
 ##############################################################################
 install_dependencies() {
     depsfile="${WORKING_DIR}/ALCF/requirements/requirements.txt"
-    echo "Ensuring all dependencies from ${depsfile} installed..."
+    echo "[install_dependencies] Ensuring all dependencies from ${depsfile} installed..."
     python3 -m pip install -r "${depsfile}" --require-virtualenv 1> /dev/null
     if [[ ! -x "$(command -v deepspeed)" ]]; then
         mn=$(get_machine_name)
-        if [[ "${mn}" == aurora* || "${mn}" == sunspot* ]]; then
-            install_deepspeed_for_xpu || exit
-        fi
-        printf "!! No 'deepspeed' command found on %s" "${mn}"
-        printf "!! No deepsepeed in $(which python3)"
+        # if [[ "${mn}" == aurora* || "${mn}" == sunspot* ]]; then
+        #     install_deepspeed_for_xpu || exit
+        # fi
+        printf "[install_dependencies] No 'deepspeed' command found on %s" "${mn}"
+        printf "[install_dependencies] !! No deepsepeed in $(which python3)"
     fi
 }
 
@@ -785,38 +833,18 @@ install_dependencies() {
 # 3. Install into virtual environment
 ######################################################################
 install_deepspeed_for_xpu() {
+    # python3 -m pip install "torch==2.1.0.post2" torchvision==0.16.0.post2 torchaudio==2.1.0.post2 intel-extension-for-pytorch==2.1.30.post0 oneccl_bind_pt==2.1.300+xpu --extra-index-url "https://pytorch-extension.intel.com/release-whl/stable/xpu/us/"
     echo "Building + Installing DeepSpeed on $(hostname)"
     outdir="${WORKING_DIR}/deps/DeepSpeed"
     mkdir -p "${outdir}"
     git clone https://github.com/microsoft/DeepSpeed.git "${outdir}"
     cd "${outdir}" || exit
-    echo "!! pwd: $(pwd)"
-    # git remote add yizhou_ds https://github.com/YizhouZ/DeepSpeed.git
-    # git fetch yizhou_ds
-    # git checkout yizhou/kernel_path
+    echo "[install_deepspeed_for_xpu] !! pwd: $(pwd)"
     python3 -m pip install --require-virtualenv -r requirements/requirements.txt 1> /dev/null
     python3 -m pip install xgboost "numpy<2" --force-reinstall --upgrade --require-virtualenv 1> /dev/null
     python setup.py develop 1> /dev/null
     cd "${WORKING_DIR}"
-    echo "!! pwd: $(pwd)"
-}
-
-
-########################################################
-# Setup / activate conda environment(s)
-########################################################
-
-###########################
-# Setup conda on Sunspot
-###########################
-setup_conda_sunspot() {
-    ###### check if CONDA_PREFIX non-empty ################
-    if [[ -z "${CONDA_PREFIX:-}" ]]; then
-        module use /soft/preview-modulefiles/24.086.0
-        module load frameworks/2024.04.15.002.lua
-        # module use /soft/preview-modulefiles/24.086.0 ; module load frameworks/2024.04.15.002.lua
-        # source "${WORKING_DIR}/ALCF/sunspot-env-2024-q2.sh"
-    fi
+    echo "[install_deepspeed_for_xpu] !! pwd: $(pwd)"
 }
 
 
@@ -1182,6 +1210,15 @@ EOT
 ###############################################
 # Helper functions for printing colored text
 ###############################################
+RESET="\e[0m"
+BLACK="\e[1;30m"
+RED="\e[1;31m"
+GREEN="\e[1;32m"
+YELLOW="\e[1;33m"
+BLUE="\e[1;34m"
+CYAN="\e[1;35m"
+WHITE="\e[1;36m"
+
 printBlack() {
     printf "\e[1;30m%s\e[0m\n" "$@"
 }
