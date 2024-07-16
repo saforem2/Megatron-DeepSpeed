@@ -66,24 +66,36 @@ helpers_main() {
 #
 # - Explicitly, this will:
 #    - Identify the machine we're on
+#
 #    - Setup `python`
 #       1. Load `conda`
 #       2. Setup `venv` on top of `conda`
+#
 #    - Ensure all dependencies are installed
+#
 #    - Clone + Install [`saforem2/ezpz`](https://github.com/saforem2/ezpz)
-#       1. Additionally, call `source deps/ezpz/src/ezpz/bin/savejobenv`,
-#          which will automatically build a `alias launch=mpiexec ...`
-#          according to the specifics of our active job.
+#       - Source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
+#           - This provides `{ezpz_setup_python, ezpz_setup_alcf}` (called below)
+#
 #    - Set runtime options
+#
 #    - Build `deepspeed_config.json`
+#
 #    - Build {logs, checkpoints, etc} dirs, named according to specifics of
 #       current run
+#
 #    - Specify additional `deepspeed` arguments
+#
 #    - Ensure executable exists at expected path
+#
 #    - Setup data + tokenizer via `TOKENIZER_TYPE`
+#
 #    - Print job info
+#
 #    - Save `.env` to `CKPT_DIR` for safe keeping
+#
 #    - Check that we're not already running, and if so, exit.
+#
 #    - Setup run command to be executed.
 ##############################################################################
 setup() {
@@ -344,9 +356,13 @@ setupLauncher() {
         make_ds_hostfile || exit
         export LAUNCHER="deepspeed --hostfile $hfds --launcher MPICH ${EXEC}"
     else
-
         if [[ -n "${DIST_LAUNCH}" ]]; then
-            LAUNCHER="${DIST_LAUNCH} --pmi=pmix --genvall $(which python3) -Wignore ${EXEC}"
+            local mn=$(get_machine_name)
+            if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
+                LAUNCHER="${DIST_LAUNCH} --pmi=pmix --genvall $(which python3) -Wignore ${EXEC}"
+            else
+                LAUNCHER="${DIST_LAUNCH} --genvall $(which python3) -Wignore ${EXEC}"
+            fi
             export LAUNCHER="${LAUNCHER}"
         else
             echo "[setupLauncher][INFO]: Saving environment to: .env-${PBS_JOBID}"
@@ -980,12 +996,13 @@ setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
         # shellcheck source=./data-lists/sunspot/books.txt
         dfl_fallback="${WORKING_DIR}/ALCF/data-lists/sunspot/dolma.txt"
     elif [[ $(hostname) == x3* ]]; then  # -------------------[POLARIS / SIRIUS]
-        if [[ "${PBS_O_HOST}" == sirius* ]]; then  # -------------------[SIRIUS]
-            # shellcheck source=./data-lists/sirius/books.txt
-            dfl_fallback="${WORKING_DIR}/ALCF/data-lists/sirius/dolma.txt"
-        elif [[ "${PBS_O_HOST}" == polaris* ]]; then  # ---------------[POLARIS]
-            # shellcheck source=./data-lists/polaris/books.txt
+        polaris_match=$(echo $PBS_NODEFILE | grep 'polaris')
+        if [[ -n "${polaris_match}" ]]; then
+            # shellcheck source=./data-lists/polaris/dolma.txt
             dfl_fallback="${WORKING_DIR}/ALCF/data-lists/polaris/dolma.txt"
+        else
+            # shellcheck source=./data-lists/sirius/dolma.txt
+            dfl_fallback="${WORKING_DIR}/ALCF/data-lists/sirius/dolma.txt"
         fi
     elif [[ $(hostname) == login* || $(hostname) == nid* ]]; then # [PERLMUTTER]
         dfl_fallback="${SLURM_SUBMIT_DIR}/genslm-subsample.txt"
