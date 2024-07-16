@@ -543,7 +543,7 @@ setParams() {
     export SP="${SP:-1}"
     export FLASH_ARG="${FLASH_ARG}"
     export DTYPE="${DTYPE:-bf16}"
-    export OPT="${OPT:-adamwschedulefree}"
+    export OPT="${OPT:-adamw}"
     export HOSTFILE="${HOSTFILE:-${PBS_NODEFILE}}"
     NHOSTS=$(wc -l < "${HOSTFILE}")
     if [[ -z "${NGPU_PER_HOST:-}" ]]; then
