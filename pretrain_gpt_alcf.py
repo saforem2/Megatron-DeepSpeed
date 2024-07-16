@@ -158,8 +158,12 @@ def model_provider(pre_process=True, post_process=True):
         tbdir = args.tensorboard_dir
         # tbdir = args.getattr('tensorboard_dir', None)
         if tbdir is not None:
-            log.info(f'Patching tensorboard from {tbdir}')
-            wandb.tensorboard.patch(root_logdir=tbdir)
+            try:
+                log.info(f'Patching tensorboard from {tbdir}')
+                wandb.tensorboard.patch(root_logdir=tbdir)
+            except ValueError as exc:
+                log.exception(exc)
+                log.warning('Continuing without patching tensorboard!')
         wandb.run.config.update({'num_params': num_params})
         if "args" not in wandb.run.config:
             log.info(
