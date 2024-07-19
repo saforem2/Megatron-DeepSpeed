@@ -1,5 +1,4 @@
 #!/bin/bash --login
-
 ###############################################################################
 # [`ALCF/helpers.sh`](https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/ALCF/helpers.sh)
 #
@@ -20,6 +19,27 @@
 # 2. Parse `$PBS_*` env vars to build appropriate `alias launch='mpiexec ...'`
 #    command for launching across all GPUs in our active PBS job.
 ###############################################################################
+
+
+###############################################################################
+# Check if running in DEBUG=1 mode.
+#   - If so, this will print each command before it is ran and exit if any of
+#   them return a nonzero exit status.
+###############################################################################
+if [[ -n "${DEBUG-}" ]]; then  # to use: `DEBUG=1 bash train_llama_alcf.sh`
+    printf "\e[1;31m%s\e[0m\n" "!! RUNNING IN DEBUG MODE !!"
+    set -euxo pipefail
+fi
+
+###############################################################################
+# Print (but DO NOT EXECUTE !!) each command that would be ran.
+#
+# Enable with: NOOP=1 PBS_O_WORKDIR=$(pwd) bash train_llama_alcf.sh
+###############################################################################
+if [[ -v NOOP ]]; then         # to use: `NOOP=1 bash train_llama_alcf.sh`
+  echo "Run NOOP mode"
+  set -o noexec                # same as set -n
+fi
 
 ##################
 # helpers_main
@@ -413,6 +433,39 @@ get_batch_size_on_polaris() {
     echo "${mbs}"
 }
 
+_get_num_hosts_from_hostfile() {
+    if [[ "$#"  == 1 ]]; then
+        if [[ -f "$1" ]]; then
+            nhosts=$(wc -l < "$1")
+            echo "${nhosts}"
+        else
+            exit 1
+        fi
+    else
+        exit 1
+    fi
+}
+
+
+###########################################
+# get_grad_acc_steps_on_aurora
+#
+# NOTE:
+# We use different numbers of gradient
+# accumulation steps (GAS) depending
+# on the number of hosts in our job.
+#
+# Each host has:
+#
+#   [2 tiles] x [6 xpus / tile] = 12 xpus
+#
+# |    nnhosts    |   nhosts  |  GAS  |
+# |:-------------:|:---------:|:-----:|
+# | 64 <= n < inf | [64, inf) |   1   |
+# | 32 <= n < 64  | [32, 64)  |   2   |
+# | 16 <= n < 32  | [16, 32)  |   4   |
+# |  0 <= n < 16  | [0, 16)   |   8   |
+###########################################
 get_grad_acc_steps_on_aurora() {
     if [[ "$#" == 0 ]]; then
         local hf="${HOSTFILE:-${PBS_NODEFILE:-$(ezpz_get_pbs_nodefile_from_hostname)}}"
@@ -422,39 +475,16 @@ get_grad_acc_steps_on_aurora() {
         echo "Expected exactly 0 or 1 arguments, received: $#"
         exit 1
     fi
-    nhosts=$(wc -l < "${hf}")
-    # NOTE:
-    # |  nhosts          |   nhosts   |  GAS  |
-    # |:----------------:|:----------:|:-----:|
-    # |        n <= 32   | [0, 32]    |   8   |
-    # | 32   < n  < 64   | (32, 64)   |   4   |
-    # | 64  <= n  < 128  | [64, 128)  |   2   |
-    # | 128 <= n  < inf  | [128, inf) |   1   |
-    if [[ 128 -le "${nhosts}" ]]; then
+    local nhosts=$(wc -l < "${hf}")
+    if [[ 64 -le "${nhosts}" ]]; then
         gas=1
-    elif [[ 64 -le "${nhosts}" && "${nhosts}" -lt 128 ]]; then
-        gas=2
-    # 32 <= nhosts < 64
     elif [[ 32 -le "${nhosts}" && "${nhosts}" -lt 64 ]]; then
+        gas=2
+    elif [[ 16 -le "${nhosts}" && "${nhosts}" -lt 32 ]]; then
         gas=4
-    # nhosts <= 16
-    # elif [[ "${nhosts}" -lt 32 ]]; then
-    #     gas=8
     else
         gas=8
     fi
-    # if [[ "${nhosts}" > 512 ]]; then
-    #     gas=1
-    # # elif [[ 256 <= "${nhosts}" && "${nhosts}" <= 512 ]]; then
-    # elif [[ 256 -le "${nhosts}" && "${nhosts}" -le 512 ]]; then
-    # elif [[ 128 < "${nhosts}" && "${nhosts}" <= 256 "${nhosts}" ]]; then
-    #     gas=2
-    # # elif [[ 128 < "${nhosts}" && "${nhosts}" < 256 ]]; then
-    # elif [[ 64 <= "${nhosts}" && "${nhosts}" <= 128 -lt "${nhosts}" ]]; then
-    #     gas=2
-    # else
-    #     gas=8
-    # fi
     echo "${gas}"
 }
 
@@ -475,7 +505,9 @@ setParams() {
     LLAMA_ARGS="--attention-dropout 0 --hidden-dropout 0"
     # ---- [Parallelism Settings] -------------------------------------------+
     # ------ [Aurora] -------||------ [SunSpot] -------------
-    if [[ $(hostname) == x4* || $(hostname) == x1* ]]; then
+    # if [[ $(hostname) == x4* || $(hostname) == x1* ]]; then
+    local mn=$(get_machine_name)
+    if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
         TP=${TP:-1}                      # TP = 1
         export SAVE_INTERVAL="${SAVE_INTERVAL:-20}"
         export CCL=${CCL:-ccl}           # CCL
@@ -483,6 +515,7 @@ setParams() {
         export DTYPE=${DTYPE:-bf16}      # DTYPE: bf16
         # export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}     # GRADIENT_ACC_STEPS
         export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-$(get_grad_acc_steps_on_aurora)}"
+        echo "[setParams] Using GRAD_ACC_STEPS: ${GRAD_ACC_STEPS}"
         MICRO_BATCH=${MICRO_BATCH:-4}    # MICRO_BATCH = 4
         export CCL_PROCESS_LAUNCHER=pmix
         export CCL_ATL_TRANSPORT=mpi
@@ -497,7 +530,6 @@ setParams() {
             if [[ -n "${NO_FLASH_ATTN-}" ]]; then
                 echo "Not using flash-attn!!"
             else
-                # LLAMA_ARGS="${LLAMA_ARGS} --use-flash-attn-builder"
                 FLASH_ARG="--use-flash-attn-builder"
             fi
         else
@@ -506,7 +538,8 @@ setParams() {
         fi
         ######################################################################
     # +--------[Polaris]-----------------------------------+
-    elif [[ $(hostname) == x3* ]]; then
+    # elif [[ $(hostname) == x3* ]]; then
+    elif [[ "${mn}" == "polaris" || "${mn}" == "sirius" ]]; then
         # export LAUNCH_CMD="${LAUNCH_CMD:-deepspeed}"
         TP=${TP:-1}                                     # TP = 2
         export NCCL=${NCCL:-nccl}                       # NCCL
@@ -525,7 +558,8 @@ setParams() {
         echo "Setting up AWS NCCL OFI Plugin on Polaris..."
         source "${WORKING_DIR}/ALCF/aws_ofi_nccl_plugin.sh" || exit
     # +--------[Perlmutter]---------------------------------+
-    elif [[ $(hostname) == login* || $(hostname) == nid* ]]; then
+    # elif [[ $(hostname) == login* || $(hostname) == nid* ]]; then
+elif [[ "${mn}" == login* || "${mn}" == nid* ]]; then
         TP="${TP:-2}"
         export NCCL="${NCCL:-nccl}"
         export BE="${NCCL}"
@@ -671,17 +705,17 @@ make_ds_hostfile() {
 # 1. Clone [`saforem2/ezpz`](https://github.com/saforem2/ezpz) (if necessary)
 #    to `"${WORKING_DIR}/deps/ezpz/"`
 #
-# 2. Source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
+# 2. Source [`ezpz/src/ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
 #    - This provides `{ezpz_setup_python, ezpz_setup_alcf}` (called below)
 #
-# 3. Call `ezpz_setup_python`:
+# 3. Call `ezpz_setup_python` (from `ezpz/bin/utils.sh`):
 #    - This will setup conda + virtual enviroment
 #
-# 4. Call `ezpz_setup_alcf`:
+# 4. Call `ezpz_setup_alcf` (from `ezpz/bin/utils.sh`):
 #    - This will parse `$PBS_*` variables and build launch cmd
 #
-# 3. Call `_ezpz_install`:
-#    - Install ezpz from "${WORKING_DIR}/depz/ezpz/"
+# 3. Call `_ezpz_install` (from `Megatron-DeepSpeed/ALCF/helpers.sh`):
+#    - Install ezpz from `"${WORKING_DIR}/depz/ezpz/"`
 ###########################################
 ezpz_setup() {
     # setup_alcf "$@"
