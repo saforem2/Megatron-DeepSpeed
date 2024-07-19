@@ -220,6 +220,10 @@ setup_run_cmd() {
         --${DTYPE} \
         ${DEFAULTS} \
         --optimizer ${OPT} \
+        --adam-beta1=${ADAM_BETA1} \
+        --adam-beta2=${ADAM_BETA2} \
+        --adam-eps=${ADAM_EPS} \
+        --weight-decay=${WEIGHT_DECAY} \
         --save ${CKPT_DIR} \
         --load ${CKPT_DIR} \
         --seq-length ${SEQ} \
@@ -578,6 +582,10 @@ elif [[ "${mn}" == login* || "${mn}" == nid* ]]; then
     export FLASH_ARG="${FLASH_ARG}"
     export DTYPE="${DTYPE:-bf16}"
     export OPT="${OPT:-adamw}"
+    export ADAM_BETA1="${ADAM_BETA1:-0.9}"
+    export ADAM_BETA2="${ADAM_BETA2:-0.95}"
+    export ADAM_EPS="${ADAM_EPS:-0.00001}"  # 1 * 10^{-5}
+    export WEIGHT_DECAY="${WEIGHT_DECAY:-0.1}"
     export HOSTFILE="${HOSTFILE:-${PBS_NODEFILE}}"
     NHOSTS=$(wc -l < "${HOSTFILE}")
     if [[ -z "${NGPU_PER_HOST:-}" ]]; then
