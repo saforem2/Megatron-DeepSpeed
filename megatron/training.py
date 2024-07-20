@@ -941,7 +941,7 @@ def train_step(
     # Update learning rate.
     if args.deepspeed:
         skipped_iter = 0
-        grad_norm = None
+        grad_norm = model[0].get_global_grad_norm()
         num_zeros_in_grad = None
         loss_reduced = {}
         for key in losses_reduced[0]:
