@@ -21,26 +21,6 @@
 ###############################################################################
 
 
-###############################################################################
-# Check if running in DEBUG=1 mode.
-#   - If so, this will print each command before it is ran and exit if any of
-#   them return a nonzero exit status.
-###############################################################################
-if [[ -n "${DEBUG-}" ]]; then  # to use: `DEBUG=1 bash train_llama_alcf.sh`
-    printf "\e[1;31m%s\e[0m\n" "!! RUNNING IN DEBUG MODE !!"
-    set -euxo pipefail
-fi
-
-###############################################################################
-# Print (but DO NOT EXECUTE !!) each command that would be ran.
-#
-# Enable with: NOOP=1 PBS_O_WORKDIR=$(pwd) bash train_llama_alcf.sh
-###############################################################################
-if [[ -v NOOP ]]; then         # to use: `NOOP=1 bash train_llama_alcf.sh`
-  echo "Run NOOP mode"
-  set -o noexec                # same as set -n
-fi
-
 ##################
 # helpers_main
 #
@@ -57,7 +37,7 @@ fi
 #       2. else, if `${SLURM_SUBMIT_DIR}` is nonzero use this
 #       3. else, use `$(pwd)`
 #
-#   this is crucial since many of the functions below use paths 
+#   this is _crucial_ since many of the functions below use paths
 #   which are defined relative to this "${WORKING_DIR}"
 #   (e.g. virtual environment, location of executables, etc.)
 ##################
@@ -137,7 +117,7 @@ setup() {
     ##########################################################################
     install_dependencies
     # Set command line arguments to pass to `"${EXEC}"`
-    setParams || exit
+    setParams "$@" || exit
     # Create `deepspeed_config.json` from runtime params from ^
     buildDSconfig || exit
     # Specify output directory for {logs, checkpoints, etc.}
@@ -320,7 +300,6 @@ get_machine() {
 
 
 check_and_kill_if_running() {
-    # kill $(ps aux | grep -E "$USER.+(mpi|main.py)" | grep -v grep | awk '{print $2}')
     RUNNING_PIDS=$(lsof -i:29500 -Fp | head -n 1 | sed 's/^p//')
     if [[ -n "${RUNNING_PIDS}" ]];
         then echo "Caught ${RUNNING_PIDS}" && kill "${RUNNING_PIDS}";
@@ -381,7 +360,7 @@ setupLauncher() {
         export LAUNCHER="deepspeed --hostfile $hfds --launcher MPICH ${EXEC}"
     else
         if [[ -n "${DIST_LAUNCH}" ]]; then
-            local mn=$(get_machine_name)
+            mn=$(get_machine_name)
             if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
                 LAUNCHER="${DIST_LAUNCH} --pmi=pmix --genvall $(which python3) -Wignore ${EXEC}"
             else
@@ -450,7 +429,6 @@ _get_num_hosts_from_hostfile() {
     fi
 }
 
-
 ###########################################
 # get_grad_acc_steps_on_aurora
 #
@@ -472,14 +450,14 @@ _get_num_hosts_from_hostfile() {
 ###########################################
 get_grad_acc_steps_on_aurora() {
     if [[ "$#" == 0 ]]; then
-        local hf="${HOSTFILE:-${PBS_NODEFILE:-$(ezpz_get_pbs_nodefile_from_hostname)}}"
+        hf="${HOSTFILE:-${PBS_NODEFILE:-$(ezpz_get_pbs_nodefile_from_hostname)}}"
     elif [[ "$#" == 1 ]]; then
-        local hf="$1"
+        hf="$1"
     else
         echo "Expected exactly 0 or 1 arguments, received: $#"
         exit 1
     fi
-    local nhosts=$(wc -l < "${hf}")
+    nhosts=$(wc -l < "${hf}")
     if [[ 64 -le "${nhosts}" ]]; then
         gas=1
     elif [[ 32 -le "${nhosts}" && "${nhosts}" -lt 64 ]]; then
@@ -510,7 +488,7 @@ setParams() {
     # ---- [Parallelism Settings] -------------------------------------------+
     # ------ [Aurora] -------||------ [SunSpot] -------------
     # if [[ $(hostname) == x4* || $(hostname) == x1* ]]; then
-    local mn=$(get_machine_name)
+    mn=$(get_machine_name)
     if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
         TP=${TP:-1}                      # TP = 1
         export SAVE_INTERVAL="${SAVE_INTERVAL:-20}"
@@ -518,7 +496,9 @@ setParams() {
         export BE="${CCL}"               # COMMUNICATION BACKEND = CCL
         export DTYPE=${DTYPE:-bf16}      # DTYPE: bf16
         # export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}     # GRADIENT_ACC_STEPS
-        export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-$(get_grad_acc_steps_on_aurora)}"
+        gas=$(get_grad_acc_steps_on_aurora "$@")
+        export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-${gas}}"
+        # export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-$(get_grad_acc_steps_on_aurora "$@)}"
         echo "[setParams] Using GRAD_ACC_STEPS: ${GRAD_ACC_STEPS}"
         MICRO_BATCH=${MICRO_BATCH:-4}    # MICRO_BATCH = 4
         export CCL_PROCESS_LAUNCHER=pmix
@@ -734,9 +714,10 @@ ezpz_setup() {
     if [[ -d "${ezdir}" ]]; then
         echo "Found ezpz in ${ezdir}"
     else
-        mkdir -p $(dirname "${ezdir}")
+        mkdir -p "$(dirname "${ezdir}")"
         git clone https://github.com/saforem2/ezpz "${ezdir}"
     fi
+    # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
     source "${ezdir}/src/ezpz/bin/utils.sh" || exit
     ezpz_setup_python
     ezpz_setup_alcf "$@"
@@ -876,7 +857,7 @@ install_dependencies() {
         #     install_deepspeed_for_xpu || exit
         # fi
         printf "[install_dependencies] No 'deepspeed' command found on %s" "${mn}"
-        printf "[install_dependencies] !! No deepsepeed in $(which python3)"
+        printf "[install_dependencies] !! No deepsepeed in %s" "$(which python3)"
     fi
 }
 
@@ -1032,25 +1013,8 @@ setup_tokenizer_and_data() {
 ###############################################
 setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     ####### [Set DATA_FILE_LIST_FALLBACK based on current machine] #############
-    if [[ $(hostname) == x4* ]]; then    # -----------------------------[AURORA]
-        dfl_fallback="${WORKING_DIR}/ALCF/data-lists/aurora/dolma.txt"
-    elif [[ $(hostname) == x1* ]]; then  # ----------------------------[SUNSPOT]
-        # shellcheck source=./data-lists/sunspot/books.txt
-        dfl_fallback="${WORKING_DIR}/ALCF/data-lists/sunspot/dolma.txt"
-    elif [[ $(hostname) == x3* ]]; then  # -------------------[POLARIS / SIRIUS]
-        polaris_match=$(echo $PBS_NODEFILE | grep 'polaris')
-        if [[ -n "${polaris_match}" ]]; then
-            # shellcheck source=./data-lists/polaris/dolma.txt
-            dfl_fallback="${WORKING_DIR}/ALCF/data-lists/polaris/dolma.txt"
-        else
-            # shellcheck source=./data-lists/sirius/dolma.txt
-            dfl_fallback="${WORKING_DIR}/ALCF/data-lists/sirius/dolma.txt"
-        fi
-    elif [[ $(hostname) == login* || $(hostname) == nid* ]]; then # [PERLMUTTER]
-        dfl_fallback="${SLURM_SUBMIT_DIR}/genslm-subsample.txt"
-    else  # -----------------------------------------------------------[UNKNOWN]
-        echo "Unknown hostname. Must manually specify DATA_FILE_LIST."
-    fi
+    mn=$(get_machine_name)
+    dfl_fallback="${WORKING_DIR}/ALCF/data-lists/${mn}/dolma.txt"
     ############################################################################
     # set `dfl` to `dfl_fallback` if not passed as an argument,
     # use this data file list to call `setData`
