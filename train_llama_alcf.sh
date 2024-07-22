@@ -20,6 +20,8 @@ if [[ -v NOOP ]]; then         # to use: `NOOP=1 bash train_llama_alcf.sh`
   set -o noexec                # same as set -n
 fi
 
+XPU_IGNORE_STRING="CCL_WARN|\ -\ INFO\ \-\ |real_accelerator\.py|numexpr\.utils|async_io|libaio"
+
 #####################
 # MAIN PROGRAM LOGIC
 #####################
@@ -30,7 +32,7 @@ main() {
     # 2. source `ALCF/helpers.sh`
     source "${HERE}/ALCF/helpers.sh" || exit
     # 3. call `setup` from `./ALCF/helpers.sh`
-    setup || exit
+    setup "$@" || exit
     # 4. Take custom args
     export custom_args=" $@"
     # 5. Update ${run_cmd} (from setup ALCF/helpers.sh) with ${custom_args}
@@ -40,7 +42,7 @@ main() {
     # 7. Tell user where to find output
     printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
     # 8. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
-    eval "${run_cmd}" |& tee -a "${OUTPUT_LOG}"
+    eval "${run_cmd}" |& grep -E -v "${XPU_IGNORE_STRING}" |& tee -a "${OUTPUT_LOG}"
     set +x
 }
 
