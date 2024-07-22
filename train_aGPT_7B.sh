@@ -1,30 +1,24 @@
 #!/bin/bash --login
 
+#####################################
+# AuroraGPT-7B
+#
+# Main production script for training
+# AuroraGPT-7B @ ALCF
+#####################################
 
-NOW="$(date "+%Y-%m-%d-%H%M%S")"
+
+# 1. Navigate into `$PBS_O_WORKDIR`
 cd "${PBS_O_WORKDIR}" || exit
-
-HOSTNAME=$(hostname)
-if [[ "${HOSTNAME}" == x3* ]]; then
-    MACHINE="polaris"
-elif [[ "${HOSTNAME}" == x1* ]]; then
-    MACHINE="sunspot"
-elif [[ "${HOSTNAME}" == x4* ]]; then
-    MACHINE="aurora"
-fi
-
-OUTDIR="${PBS_O_WORKDIR}/pbslogs" && mkdir -p "${OUTDIR}"
-OUTFILE="${OUTDIR}/${PBS_JOBID}-${NOW}.log"
-
-echo "+---------------------------------------------------------+"
-echo "| Running on: ${MACHINE}"
-echo "| Detected ${nhosts} hosts. Running with micro batch: ${MBS}"
-echo "| Logging job output to: ${OUTFILE}"
-echo "+---------------------------------------------------------+"
-
-export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=6000
-echo "${OUTFILE}" >> "${OUTDIR}/latest"
-# export DEBUG=1
-# export MICRO_BATCH="${MICRO_BATCH:-${MBS}}"
-export DATA_FILE_LIST="${DATA_FILE_LIST:-${PBS_O_WORKDIR}/ALCF/data-lists/${MACHINE}/dolma_v1_7_file_list.txt}"
-bash "${PBS_O_WORKDIR}/train_llama_alcf.sh" |& tee "${OUTFILE}"
+HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
+# 2. source `ALCF/helpers.sh`
+source "${HERE}/ALCF/helpers.sh" || exit
+# 3. call `setup` from `./ALCF/helpers.sh`
+setup "$@" || exit
+export run_cmd="${run_cmd}"
+echo "${run_cmd}" | tee -a "${OUTPUT_LOG}"
+# 7. Tell user where to find output
+printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
+XPU_IGNORE_STRING="CCL_WARN|\ -\ INFO\ \-\ |real_accelerator\.py|numexpr\.utils|async_io|libaio"
+# 8. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
+eval "${run_cmd}" |& grep -E -v "${XPU_IGNORE_STRING}" |& tee -a "${OUTPUT_LOG}"
