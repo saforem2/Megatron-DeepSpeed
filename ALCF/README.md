@@ -42,7 +42,7 @@ To launch on {`Polaris`, `Aurora`, `Sunspot`} @ [ALCF](https://alcf.anl.gov):
     1. Load `conda` module and activate base environment:
 
        ```bash
-       export PBS_O_WORKDIR=$(pwd) && source ALCF/helpers.sh && setup_python
+       export PBS_O_WORKDIR=$(pwd) && source ALCF/helpers.sh && ezpz_setup
        ```
 
         - <details closed><summary><code>[output]</code>:</summary>
