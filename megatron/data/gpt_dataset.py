@@ -143,7 +143,7 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
         print_rank_0(" >>> Started building datasets in distributed way ... ")
 
         a, b, c = [int(d) for d in splits_string.split(",")]
-
+        
         train_datasets = []
         valid_datasets = []
         test_datasets = []
@@ -152,7 +152,7 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
         @dlp.log
         def build_corpus_datasets(dataset_type='train'):
             start_time = time.time()
-            print_rank_0(" >>> Building {dataset_type} corpus datasets ...")
+            print_rank_0(f" >>> Building {dataset_type} corpus datasets ...")
             datasets = []
             corpus_builders = {}
             corpus_weights = {}
@@ -163,7 +163,7 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
                                                datasets_train_valid_test_num_samples[i],
                                                seq_length, seed, skip_warmup,
                                                return_doc_ids,data_cache_path, dataset_type) for i in  range(len(weights))]
-            for i in range(torch.distributed.get_rank(), len(weights), torch.distributed.get_world_size()):
+            for i in range(torch.distributed.get_rank()//mpu.get_tensor_model_parallel_world_size(), len(weights),  torch.distributed.get_world_size()//mpu.get_tensor_model_parallel_world_size()):
                 dataset_builders[i].Build()
             print_rank_0(f" >>> Finished building individual datasets in {time.time() - start_time} seconds")
             start_concating_time = time.time()
@@ -195,8 +195,10 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
 
         # This barrier is critical to make sure that all the datasets are built once
         # and the metadata were written to the cache folder before other ranks touch them
-        print_rank_0(f" >>> Rank 0 - finished building datasets in {time.time() - start_time} seconds")                
-        MPI.COMM_WORLD.Barrier()
+        print_rank_0(f" >>> Rank 0 - finished building datasets in {time.time() - start_time} seconds")
+        torch.distributed.barrier(group=mpu.get_data_parallel_group())
+        torch.distributed.barrier(group=mpu.get_pipeline_model_parallel_group())
+        torch.distributed.barrier(group=mpu.get_data_parallel_group())
         print_rank_0(f" >>> Finished building datasets (all ranks) in distributed way in {time.time() - start_time} seconds")
         print_rank_0(f" >>> Starting to build BlendableDataset")
         # Blend.
