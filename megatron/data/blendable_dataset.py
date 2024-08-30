@@ -96,7 +96,10 @@ class BlendableDataset(torch.utils.data.Dataset):
                 print_rank_0("Data index creation unsuccessful, exiting.")
                 exit()
             '''
-            MPI.COMM_WORLD.Barrier()
+            torch.distributed.barrier(group=mpu.get_data_parallel_group())
+            torch.distributed.barrier(group=mpu.get_pipeline_model_parallel_group())
+            torch.distributed.barrier(group=mpu.get_data_parallel_group())
+            
             start_time = time.time()
             print_rank_0(f'> loading blendable dataset index: {index_path}')
             self.dataset_index = np.load(index_path, allow_pickle=True, mmap_mode='r')
