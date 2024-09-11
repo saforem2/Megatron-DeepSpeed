@@ -991,6 +991,13 @@ def _add_training_args(parser):
     group.add_argument('--use-dataset-only', type=bool, required=False, default=False,
                        help='If set to True, only use the megatron dataset for external trainer ')
     group.add_argument('--profile', action='store_true', help='Enable Torch Profiler')
+    group.add_argument(
+       "--train-range-to-skip",
+       action="extend",
+       nargs="+",
+       type=int,
+       help=("Range of iters to skip during training. Must be in pairs."),
+    )
     group.add_argument('--train-iters-to-skip', action="extend", nargs="+", type=str,
                        help=(
                            "Specific train iterations to skip when training. "

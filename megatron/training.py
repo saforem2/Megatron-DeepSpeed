@@ -1639,6 +1639,7 @@ def train(
         model_module.train()
     # Tracking loss.
     total_loss_dict = {}
+    loss_dict = {}
     # Iterations.
     iteration = args.iteration
     # Translate args to core configuration
@@ -1654,6 +1655,19 @@ def train(
         args.random_ltd_layer_num = model[
             0
         ].random_ltd_scheduler.get_random_ltd_layer_num()
+    ranges_to_skip = None
+    if args.train_range_to_skip is not None:
+        assert (
+            len(args.train_range_to_skip) % 2 == 0
+        ), f"""Expected --train-range-to-skip to have an even number of values.
+            Received: {len(args.train_range_to_skip)}
+            """
+        ranges_to_skip = list(
+            zip(
+                args.train_range_to_skip[::2],
+                args.train_range_to_skip[1::2],
+            )
+        )
     while iteration < args.train_iters and (
         args.train_tokens is None or args.consumed_train_tokens < args.train_tokens
     ):
@@ -1675,18 +1689,39 @@ def train(
                     update_rotary_pos_emb(curriculum_seqlen)
             args.curriculum_seqlen = curriculum_seqlen
         args.curr_iteration = iteration
-        if os.getenv("TORCH_PROFILER_ENABLE") == "2":
-            from torch.profiler import profile, record_function, ProfilerActivity
-            try:
-                activities = [
-                    ProfilerActivity.CPU,
-                    ProfilerActivity.CUDA,
-                    ProfilerActivity.XPU,
-                ]
-            except Exception:
-                log.warning("TORCH PROFILER WARNING: XPU is not supported")
-                activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-            with profile(activities=activities) as prof:
+        if ranges_to_skip is not None and any(
+            [i <= (iteration + 1) <= j for (i, j) in ranges_to_skip]
+        ):
+            log.info(f"Caught {iteration + 1} in 'ranges_to_skip', skipping!")
+            loss_dict = {}
+            skipped_iter = 1
+            grad_norm = None
+            num_zeros_in_grad = None
+        else:
+            if os.getenv("TORCH_PROFILER_ENABLE") == "2":
+                from torch.profiler import profile, record_function, ProfilerActivity
+                try:
+                    activities = [
+                        ProfilerActivity.CPU,
+                        ProfilerActivity.CUDA,
+                        ProfilerActivity.XPU,
+                    ]
+                except Exception:
+                    log.warning("TORCH PROFILER WARNING: XPU is not supported")
+                    activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+                with profile(activities=activities) as prof:
+                    loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
+                        forward_step_func,
+                        train_data_iterator,
+                        model,
+                        optimizer,
+                        opt_param_scheduler,
+                        config,
+                    )
+                prof.export_chrome_trace(
+                    f"{args.trace_dir}/torch-trace-{RANK}-of-{WORLD_SIZE}-step{iteration}.json"
+                )
+            else:
                 loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
                     forward_step_func,
                     train_data_iterator,
@@ -1695,18 +1730,6 @@ def train(
                     opt_param_scheduler,
                     config,
                 )
-            prof.export_chrome_trace(
-                f"{args.trace_dir}/torch-trace-{RANK}-of-{WORLD_SIZE}-step{iteration}.json"
-            )
-        else:
-            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
-                forward_step_func,
-                train_data_iterator,
-                model,
-                optimizer,
-                opt_param_scheduler,
-                config,
-            )
         iteration += 1
         args.iteration = iteration
         new_samples = (
@@ -1792,7 +1815,8 @@ def train(
         saved_checkpoint = False
         if args.exit_signal_handler:
             signal_handler = get_signal_handler()
-            if any(signal_handler.signals_received()):
+            # if any(signal_handler.signals_received()):
+            if signal_handler is not None and any(signal_handler.signals_received()):
                 save_checkpoint_and_time(
                     iteration, model, optimizer, opt_param_scheduler
                 )
