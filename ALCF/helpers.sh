@@ -181,9 +181,12 @@ setup_run_cmd() {
         --no-masked-softmax-fusion \
         --no-gradient-accumulation-fusion \
         --accumulate-allreduce-grads-in-fp32 \
-        --use-checkpoint-opt_param-scheduler \
         --log-timers-to-tensorboard \
         --log-optimizer-states-to-tensorboard"
+    OVERRIDE_CKPT_OPT_PARAM="${OVERRIDE_CKPT_OPT_PARAM:-}"
+    if [[ -z "${OVERRIDE_CKPT_OPT_PARAM:-}" ]]; then
+        DEFAULTS="${DEFAULTS} --use-checkpoint-opt_param-scheduler"
+    fi
     if [[ "${SP}" -ge 2 ]]; then
         export DEFAULTS="${DEFAULTS} --ds-sequence-parallel-size ${SP} --force-ds-sequence-parallel"
     fi
