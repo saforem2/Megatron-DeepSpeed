@@ -39,7 +39,7 @@ from megatron.core import mpu
 # from megatron.optimizer_param_scheduler import OptimizerParamScheduler
 # from megatron.profiler import on_step_begin, on_step_end, setup_profiler, trigger
 # from megatron.utils import check_adlr_autoresume_termination
-from megatron.utils import found_kill_switch, unwrap_model
+# from megatron.utils import found_kill_switch, unwrap_model
 import ezpz as ez
 
 # from megatron.utils import calc_params_l2_norm
@@ -76,6 +76,37 @@ DEVICE: torch.device = torch.device(DEVICE_TYPE)
 log: logging.Logger = logging.getLogger(__name__)
 LOG_LEVEL: str = str(os.environ.get("LOG_LEVEL", "INFO")).upper()
 log.setLevel(LOG_LEVEL) if RANK == 0 else log.setLevel("CRITICAL")
+
+
+def num_floating_point_operations(args, batch_size):
+    # Group Query Attention.
+    # if not args.group_query_attention:
+    if not args.num_key_value_heads:
+        args.num_key_value_heads = args.num_attention_heads
+        # args.num_query_groups = args.num_attention_heads
+    # MoE.
+    # num_experts_routed_to = 1 if args.num_experts is None else args.moe_router_topk
+    num_experts_routed_to = 1 if args.num_experts is None else args.topk
+    gated_linear_multiplier = 3 / 2 if args.swiglu else 1
+    return (
+        12
+        * batch_size
+        * args.seq_length
+        * args.num_layers
+        * args.hidden_size
+        * args.hidden_size
+        * (
+            1
+            + (
+                (args.ffn_hidden_size / args.hidden_size)
+                * num_experts_routed_to
+                * gated_linear_multiplier
+            )
+            + (args.num_key_value_heads / args.num_attention_heads)
+            + (args.seq_length / args.hidden_size)
+            + (args.padded_vocab_size / (2 * args.num_layers * args.hidden_size))
+        )
+    )
 
 
 def training_log(
@@ -116,12 +147,10 @@ def training_log(
     )
     # Update losses and set nan iterations
     got_nan = False
+    _zero = torch.tensor([0.0]).to(DEVICE)
     for key in loss_dict:
         if not skipped_iter:
-            total_loss_dict[key] = (
-                total_loss_dict.get(key, get_accelerator().FloatTensor([0.0]))
-                + loss_dict[key]
-            )
+            total_loss_dict[key] = total_loss_dict.get(key, _zero) + loss_dict[key]
         else:
             value = loss_dict[key].float().sum().item()
             is_nan = value == float("inf") or value == -float("inf") or value != value
@@ -170,7 +199,7 @@ def training_log(
     # Tensorboard values.
     # Timer requires all the ranks to call.
     if args.log_timers_to_tensorboard and (
-        iteration % args.tensorboard_log_interval == 0
+        iteration % args.tensorboard_log_interval == 0 and writer is not None
     ):
         timers.write(timers_to_log, writer, iteration, normalizer=total_iterations)
     if writer and (iteration % args.tensorboard_log_interval == 0):
@@ -389,18 +418,15 @@ def training_log(
                             abs(param.max().item()),
                             abs(param.min().item()),
                         )
-            # print('step {} rank {} before sync opt_stats {}, {}'.format(iteration, torch.distributed.get_rank(), opt_stats_2, opt_stats))
             if args.zero_stage > 0:
                 # ZeRO partiions optimizer states
-                # opt_stats = opt_stats.clone().detach()
-                # opt_stats = get_accelerator().FloatTensor
-                opt_stats = get_accelerator().FloatTensor(opt_stats)
+                # opt_stats = get_accelerator().FloatTensor(opt_stats)
+                opt_stats = torch.tensor(opt_stats).to(DEVICE)
                 torch.distributed.all_reduce(
                     opt_stats, group=mpu.get_sequence_data_parallel_group()
                 )
                 # opt_stats_2 = get_accelerator().FloatTensor(opt_stats_2)
-                # opt_stats_2 = opt_stats_2.clone().detach()
-                opt_stats_2 = get_accelerator().FloatTensor(opt_stats_2)
+                opt_stats_2 = torch.tensor(opt_stats_2).to(DEVICE)
                 torch.distributed.all_reduce(
                     opt_stats_2,
                     op=torch.distributed.ReduceOp.MAX,
@@ -408,13 +434,13 @@ def training_log(
                 )
 
             if args.tensor_model_parallel_size > 1:
-                # opt_stats = opt_stats.clone().detach()
-                opt_stats = get_accelerator().FloatTensor(opt_stats)
+                opt_stats = torch.tensor(opt_stats).to(DEVICE)
+                # opt_stats = get_accelerator().FloatTensor(opt_stats)
                 torch.distributed.all_reduce(
                     opt_stats, group=mpu.get_tensor_model_parallel_group()
                 )
-                # opt_stats_2 = opt_stats_2.clone().detach()
-                opt_stats_2 = get_accelerator().FloatTensor(opt_stats_2)
+                # opt_stats_2 = get_accelerator().FloatTensor(opt_stats_2)
+                opt_stats_2 = torch.tensor(opt_stats_2).to(DEVICE)
                 torch.distributed.all_reduce(
                     opt_stats_2,
                     op=torch.distributed.ReduceOp.MAX,
@@ -422,18 +448,19 @@ def training_log(
                 )
 
             if args.pipeline_model_parallel_size > 1:
-                # opt_stats = opt_stats.clone().detach()
-                opt_stats = get_accelerator().FloatTensor(opt_stats)
+                # opt_stats = get_accelerator().FloatTensor(opt_stats)
+                opt_stats = torch.tensor(opt_stats).to(DEVICE)
                 torch.distributed.all_reduce(
                     opt_stats, group=mpu.get_pipeline_model_parallel_group()
                 )
-                # opt_stats_2 = opt_stats_2.clone().detach()
-                opt_stats_2 = get_accelerator().FloatTensor(opt_stats_2)
+                # opt_stats_2 = get_accelerator().FloatTensor(opt_stats_2)
+                opt_stats_2 = torch.tensor(opt_stats_2).to(DEVICE)
                 torch.distributed.all_reduce(
                     opt_stats_2,
                     op=torch.distributed.ReduceOp.MAX,
                     group=mpu.get_pipeline_model_parallel_group(),
                 )
+
             wandb_metrics |= {
                 "optimizer/learning_rate": learning_rate,
                 "optimizer/iteration": args.iteration,
@@ -452,7 +479,8 @@ def training_log(
                 "optimizer/weight_abs_max": opt_stats_2[3],
             }
             # print('step {} rank {} after sync opt_stats {}, {}'.format(iteration, torch.distributed.get_rank(), opt_stats_2, opt_stats))
-            if writer and is_last_rank():
+            # if writer and is_last_rank():
+            if writer is not None and RANK == 0:
                 writer.add_scalar(
                     "optimizer/variance_l2 vs tokens",
                     opt_stats[0] ** 0.5,
@@ -638,7 +666,7 @@ def training_log(
                 )
                 if avg > 0.0:
                     log_string += " {}={:.6f} |".format(key, avg)
-                total_loss_dict[key] = get_accelerator().FloatTensor([0.0])
+                total_loss_dict[key] = torch.tensor([0.0]).to(DEVICE)
         if loss_scale is not None:
             log_string += " loss_scale={:.1f} |".format(loss_scale)
             wandb_metrics |= {"loss/loss_scale": loss_scale}
