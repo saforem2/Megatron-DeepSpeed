@@ -1,3 +1,4 @@
+# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company.
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 """General utilities."""
@@ -264,9 +265,18 @@ def get_ltor_masks_and_position_ids(
 
     attention_mask = None
     if not skip_mask:
+# <<<<<<< HEAD
+#         attention_mask = torch.tril(
+#             torch.ones((att_mask_batch, seq_length, seq_length))
+#         ).view(att_mask_batch, 1, seq_length, seq_length)
+# =======
         attention_mask = torch.tril(
-            torch.ones((att_mask_batch, seq_length, seq_length))
+            torch.ones(
+                (att_mask_batch, seq_length, seq_length),
+                device=data.device
+            )
         ).view(att_mask_batch, 1, seq_length, seq_length)
+# >>>>>>> 0d6e3793a1fc06eded9764ef15ad12bcc0281101
 
     # Loss mask.
     loss_mask = torch.ones(data.size(), dtype=torch.float, device=data.device)
@@ -301,11 +311,20 @@ def get_ltor_masks_and_position_ids(
                     position_ids[b, (i + 1) :] -= i + 1 - prev_index
                     prev_index = i + 1
 
+    # # Convert attention mask to binary:
+    # if not skip_mask:
+    # <<<<<<< HEAD
+    #     assert attention_mask is not None
+    #     attention_mask = attention_mask < 0.5
+    #     attention_mask = attention_mask.to(data.device)
+    # =======
+    #     attention_mask = (attention_mask < 0.5)
+    # >>>>>>> 0d6e3793a1fc06eded9764ef15ad12bcc0281101
+    
     # Convert attention mask to binary:
     if not skip_mask:
         assert attention_mask is not None
-        attention_mask = attention_mask < 0.5
-        attention_mask = attention_mask.to(data.device)
+        attention_mask = (attention_mask < 0.5)
 
     return attention_mask, loss_mask, position_ids
 
@@ -389,36 +408,66 @@ def throughput_calculator(model, args, iteration_time, total_iterations):
 
     # flops calculator
     hidden_size = args.hidden_size
+    num_attention_heads = args.num_attention_heads
+    head_dim = hidden_size // num_attention_heads
+    ffn_hidden_size = args.ffn_hidden_size
     num_layers = args.num_layers
     vocab_size = args.padded_vocab_size
+    gqa = args.num_attention_heads // args.num_key_value_heads
+    ffn_multiplier = 3 if args.swiglu else 2
+    macs_per_flops = 2
 
     # General TFLOPs formula (borrowed from Equation 3 in Section 5.1 of
     # https://arxiv.org/pdf/2104.04473.pdf).
-    # The factor of 4 is when used with activation check-pointing,
-    # otherwise it will be 3.
-    checkpoint_activations_factor = 3
-    if hasattr(args, "checkpoint_activations") and args.checkpoint_activations:
-        checkpoint_activations_factor = 4
-    if hasattr(args, "recompute_granularity") and (
-        args.recompute_granularity == "selective"
-        or args.recompute_granularity == "full"
-    ):
-        checkpoint_activations_factor = 4
+# <<<<<<< HEAD
+#     # The factor of 4 is when used with activation check-pointing,
+#     # otherwise it will be 3.
+#     checkpoint_activations_factor = 3
+#     if hasattr(args, "checkpoint_activations") and args.checkpoint_activations:
+#         checkpoint_activations_factor = 4
+#     if hasattr(args, "recompute_granularity") and (
+#         args.recompute_granularity == "selective"
+#         or args.recompute_granularity == "full"
+#     ):
+#         checkpoint_activations_factor = 4
+# =======
+    # correction has been made to TFLOPs formula due to incorrect behavior
+    # observed with selective recompute when GQA not used and for all with GQA
+# >>>>>>> 0d6e3793a1fc06eded9764ef15ad12bcc0281101
     seq_len = args.seq_length
     if hasattr(args, "actual_seq_length"):
         seq_len = args.actual_seq_length
-    flops_per_iteration = (
-        24
-        * checkpoint_activations_factor
-        * batch_size
-        * seq_len
-        * num_layers
-        * (hidden_size**2)
-    ) * (
-        1.0
-        + (seq_len / (6.0 * hidden_size))
-        + (vocab_size / (16.0 * num_layers * hidden_size))
-    )
+# <<<<<<< HEAD
+#     flops_per_iteration = (
+#         24
+#         * checkpoint_activations_factor
+#         * batch_size
+#         * seq_len
+#         * num_layers
+#         * (hidden_size**2)
+#     ) * (
+#         1.0
+#         + (seq_len / (6.0 * hidden_size))
+#         + (vocab_size / (16.0 * num_layers * hidden_size))
+#     )
+# =======
+
+    pre_and_post_mha_gemm_macs = batch_size * num_layers * (1 + (2 // gqa) + 1) * (hidden_size**2) * seq_len
+    mha_bgemm_macs = batch_size * num_layers * 2 * head_dim * num_attention_heads * (seq_len**2)
+    ffn_gemm_macs = batch_size * num_layers * ffn_multiplier * ffn_hidden_size * hidden_size * seq_len
+    logit_lmhead_gemm_macs = batch_size * vocab_size * hidden_size * seq_len
+
+    fwd_macs = pre_and_post_mha_gemm_macs + mha_bgemm_macs + ffn_gemm_macs + logit_lmhead_gemm_macs
+    bwd_macs = 2 * fwd_macs
+    fwd_bwd_macs = fwd_macs + bwd_macs
+
+    if (hasattr(args, 'checkpoint_activations') and args.checkpoint_activations) or (hasattr(args, 'recompute_granularity') and args.recompute_granularity == 'full'):
+        fwd_bwd_macs += fwd_macs
+    if hasattr(args, 'recompute_granularity') and args.recompute_granularity == 'selective':
+        fwd_bwd_macs += mha_bgemm_macs
+
+    flops_per_iteration = fwd_bwd_macs * macs_per_flops
+# >>>>>>> 0d6e3793a1fc06eded9764ef15ad12bcc0281101
     tflops = flops_per_iteration / (elapsed_time_per_iter * args.world_size * (10**12))
     return samples_per_second, tflops, approx_parameters_in_billions
 
@@ -468,6 +517,58 @@ def dump_position_embed_weights(preamble, iteration, model):
             )
 
 
+# def dump_weights(preamble, iteration, model, optimizer, tensor=None):
+#     # return
+#     tp_rank = mpu.get_tensor_model_parallel_rank()
+#     pp_rank = mpu.get_pipeline_model_parallel_rank()
+#     dp_rank = mpu.get_data_parallel_rank()
+#     dp_size = mpu.get_data_parallel_world_size()
+#     fn = f"debug-bf16-{iteration}-pp{pp_rank}-tp{tp_rank}-dp{dp_rank}-{preamble}.txt"
+#     # only care for first and last pp stages and dp0 tp0
+#     # if not (mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage()):
+#     #    return
+#     # if not (tp_rank == 0 and dp_rank == 0):
+#     #    return
+#     if tensor is not None:
+#         orig_tensor = tensor
+#         if hasattr(tensor, "_hp_param"):
+#             numel = tensor._hp_param.numel()  # // dp_size
+#             tensor = tensor.flatten().narrow(0, 0, numel)
+#     # print(fn)
+#     with open(fn, "w") as fh:
+#         fh.write(f"{get_fingerprint_header()}\n")
+#         if tensor is not None:
+#             fh.write(f"{get_fingerprint(tensor)} tensor {tensor.shape}\n")
+#         else:
+#             for n, p in model[0].named_parameters():
+#                 fh.write(f"{get_fingerprint(p)} {n} {p.shape}\n")
+#     return
+#     # until we figure out how to dump the actual fp32 values don't do this
+#     fn = f"debug-fp32-{iteration}-pp{pp_rank}-tp{tp_rank}-dp{dp_rank}-{preamble}.txt"
+#     with open(fn, "w") as fh:
+#         fh.write(f"{get_fingerprint_header()}\n")
+#         if tensor is not None:
+#             tensor = orig_tensor
+#             if hasattr(tensor, "_hp_param"):
+#                 fh.write(
+#                     f"{get_fingerprint(tensor._hp_param)} tensor {tensor._hp_param.shape}\n"
+#                 )
+#                 # fh.write(f"{get_fingerprint(tensor._hp_grad)} tensor grad\n")
+#             else:
+#                 fh.write(f"{get_fingerprint(tensor)} tensor {tensor.shape}\n")
+#                 # fh.write(f"{get_fingerprint(tensor.grad)} tensor grad\n")
+#         else:
+#             if hasattr(model[0].module.tied_modules, "embed"):
+#                 p = model[0].module.tied_modules.embed.word_embeddings.weight._hp_param
+# <<<<<<< HEAD
+#                 fh.write(
+#                     f"{get_fingerprint(p)} module.tied_modules.embed.word_embeddings.weight._hp_param {p.shape}\n"
+#                 )
+# =======
+#                 fh.write(f"{get_fingerprint(p)} module.tied_modules.embed.word_embeddings.weight._hp_param {p.shape}\n")
+#
+
+
 def dump_weights(preamble, iteration, model, optimizer, tensor=None):
     # return
     tp_rank = mpu.get_tensor_model_parallel_rank()
@@ -475,42 +576,55 @@ def dump_weights(preamble, iteration, model, optimizer, tensor=None):
     dp_rank = mpu.get_data_parallel_rank()
     dp_size = mpu.get_data_parallel_world_size()
     fn = f"debug-bf16-{iteration}-pp{pp_rank}-tp{tp_rank}-dp{dp_rank}-{preamble}.txt"
+
     # only care for first and last pp stages and dp0 tp0
-    # if not (mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage()):
+    #if not (mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage()):
     #    return
-    # if not (tp_rank == 0 and dp_rank == 0):
+
+    #if not (tp_rank == 0 and dp_rank == 0):
     #    return
+
     if tensor is not None:
         orig_tensor = tensor
         if hasattr(tensor, "_hp_param"):
-            numel = tensor._hp_param.numel()  # // dp_size
+            numel = tensor._hp_param.numel() # // dp_size
             tensor = tensor.flatten().narrow(0, 0, numel)
-    # print(fn)
+
+    #print(fn)
     with open(fn, "w") as fh:
         fh.write(f"{get_fingerprint_header()}\n")
+
         if tensor is not None:
             fh.write(f"{get_fingerprint(tensor)} tensor {tensor.shape}\n")
         else:
             for n, p in model[0].named_parameters():
                 fh.write(f"{get_fingerprint(p)} {n} {p.shape}\n")
+
+    #
+    # # until we figure out how to dump the actual fp32 values don't do this
+    # fn = f"debug-fp32-{iteration}-pp{pp_rank}-tp{tp_rank}-dp{dp_rank}-{preamble}.txt"
+    # with open(fn, "w") as fh:
+    #     fh.write(f"{get_fingerprint_header()}\n")
+    #     if tensor is not None:
+    #         tensor = orig_tensor
+    #         if hasattr(tensor, "_hp_param"):
+    #             fh.write(f"{get_fingerprint(tensor._hp_param)} tensor {tensor._hp_param.shape}\n")
+    #             #fh.write(f"{get_fingerprint(tensor._hp_grad)} tensor grad\n")
+    #         else:
+    #             fh.write(f"{get_fingerprint(tensor)} tensor {tensor.shape}\n")
+    #             #fh.write(f"{get_fingerprint(tensor.grad)} tensor grad\n")
+    #
+    #     else:
+    #         if hasattr(model[0].module.tied_modules, "embed"):
+    #             p = model[0].module.tied_modules.embed.word_embeddings.weight._hp_param
+    #             fh.write(f"{get_fingerprint(p)} module.tied_modules.embed.word_embeddings.weight._hp_param {p.shape}\n")
     return
-    # until we figure out how to dump the actual fp32 values don't do this
-    fn = f"debug-fp32-{iteration}-pp{pp_rank}-tp{tp_rank}-dp{dp_rank}-{preamble}.txt"
-    with open(fn, "w") as fh:
-        fh.write(f"{get_fingerprint_header()}\n")
-        if tensor is not None:
-            tensor = orig_tensor
-            if hasattr(tensor, "_hp_param"):
-                fh.write(
-                    f"{get_fingerprint(tensor._hp_param)} tensor {tensor._hp_param.shape}\n"
-                )
-                # fh.write(f"{get_fingerprint(tensor._hp_grad)} tensor grad\n")
-            else:
-                fh.write(f"{get_fingerprint(tensor)} tensor {tensor.shape}\n")
-                # fh.write(f"{get_fingerprint(tensor.grad)} tensor grad\n")
-        else:
-            if hasattr(model[0].module.tied_modules, "embed"):
-                p = model[0].module.tied_modules.embed.word_embeddings.weight._hp_param
-                fh.write(
-                    f"{get_fingerprint(p)} module.tied_modules.embed.word_embeddings.weight._hp_param {p.shape}\n"
-                )
+
+
+def found_kill_switch():
+    args = get_args()
+    assert args is not None
+    if args.kill_switch_file is not None and os.path.exists(args.kill_switch_file):
+        return True
+    else:
+        return False
