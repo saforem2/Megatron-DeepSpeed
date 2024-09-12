@@ -41,7 +41,7 @@ _DFTRACER_EXIST=True
 try:
     import dftracer
 except:
-    _DFTRACER_EXIST=True
+    _DFTRACER_EXIST=False
     
 try:
     import dlio_profiler
@@ -80,7 +80,7 @@ else:
         def reset(self):
             return
         def log_static(self, func):
-            return func
+            return
     class dftracer(object):
         def __init__(self,):
             self.type = None
