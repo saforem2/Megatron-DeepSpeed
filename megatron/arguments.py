@@ -1012,7 +1012,7 @@ def _add_training_args(parser):
                        dest='gradient_accumulation_fusion')
     group.add_argument('--use-dataset-only', type=bool, required=False, default=False,
                        help='If set to True, only use the megatron dataset for external trainer ')
-    group.add_argument('--profile', action='store_true', help='Enable Torch Profiler')
+    # group.add_argument('--profile', action='store_true', help='Enable Torch Profiler')
     group.add_argument(
        "--train-range-to-skip",
        action="extend",
