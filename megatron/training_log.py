@@ -397,7 +397,7 @@ def training_log(
                     opt_stats, group=mpu.get_pipeline_model_parallel_group()
                 )
                 # opt_stats_2 = opt_stats_2.clone().detach()
-                opt_stats_2 = accelerator.get_accelerator().FloatTensor(opt_stats_2)
+                opt_stats_2 = accelerator.FloatTensor(opt_stats_2)
                 torch.distributed.all_reduce(
                     opt_stats_2,
                     op=torch.distributed.ReduceOp.MAX,
