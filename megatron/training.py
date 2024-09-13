@@ -61,17 +61,17 @@ from megatron.utils import (
     check_adlr_autoresume_termination,
     checkpoint_throughput_calculator,
     found_kill_switch,
-    # num_floating_point_operations,
-    # report_memory,
-    # throughput_calculator,
     unwrap_model,
     update_rotary_pos_emb,
 )
 
-# noqa: E402
-# The earliest we can measure the start time.
-_TRAIN_START_TIME = time.time()
-# noqa
+from megatron.profiler import (
+    setup_profiler,
+    trigger,
+    on_step_begin,
+    on_step_end,
+)
+
 
 dlp = Profile("TRAINING")
 
@@ -86,11 +86,6 @@ DEVICE: torch.device = torch.device(DEVICE_TYPE)
 log: logging.Logger = logging.getLogger(__name__)
 LOG_LEVEL: str = str(os.environ.get("LOG_LEVEL", "INFO")).upper()
 log.setLevel(LOG_LEVEL) if RANK == 0 else log.setLevel("CRITICAL")
-
-# try:
-#     import wandb
-# except (ImportError, ModuleNotFoundError):
-#     wandb = None
 
 
 def print_datetime(string):
@@ -415,6 +410,8 @@ def get_model(
 ):
     """Build the model."""
     args = get_args()
+    accelerator = get_accelerator()
+    assert accelerator is not None
     assert args is not None
     args.model_type = model_type
 
@@ -521,7 +518,7 @@ def get_model(
 
     if wrap_with_ddp:
         if args.DDP_impl == "torch":
-            i = get_accelerator().current_device()
+            i = accelerator.current_device()
             model = [
                 torchDDP(
                     model_module,
@@ -808,6 +805,7 @@ def setup_model_and_optimizer(
         log.info("Initializing ICT from pretrained BERT model")
         unwrapped_model[0].init_state_dict_from_bert()
         if args.fp16:
+            assert optimizer is not None
             optimizer.reload_model_params()
     # random-LTD requires converting transformer layers
     if args.random_ltd:
@@ -822,8 +820,8 @@ def train_step(
     """Single training step."""
     args = get_args()
     timers = get_timers()
-
-    assert args is not None and timers is not None
+    accelerator = get_accelerator()
+    assert args is not None and timers is not None and accelerator is not None
     if args.deepspeed and args.ds_pipeline_enabled:
         num_zeros_in_grad = 0
         assert isinstance(model[0], deepspeed.PipelineEngine)
@@ -860,11 +858,13 @@ def train_step(
     if args.timing_log_level < 2:
         config.timers = None
 
+    num_microbatches = get_num_microbatches()
+    assert num_microbatches is not None
     losses_reduced = forward_backward_func(
         forward_step_func=forward_step_func,
         data_iterator=data_iterator,
         model=model,
-        num_microbatches=get_num_microbatches(),
+        num_microbatches=num_microbatches,
         seq_length=args.seq_length,
         micro_batch_size=args.micro_batch_size,
         decoder_seq_length=args.decoder_seq_length,
@@ -879,8 +879,8 @@ def train_step(
         args.teacher_forward = False
 
     # Empty unused memory.
-    if args.empty_unused_memory_level >= 1:
-        torch.cuda.empty_cache()
+    if args.empty_unused_memory_level >= 1 and accelerator is not None:
+        accelerator.empty_cache()
 
     # Reduce gradients.
     if not args.deepspeed:
@@ -917,8 +917,14 @@ def train_step(
 
     # Update learning rate.
     if args.deepspeed:
-        skipped_iter = 0
+        skipped_iter = 0 if update_successful else 1
         grad_norm = model[0].get_global_grad_norm()
+        # XXX: [saforem2]: ----------------------------------------------------
+        # Is `num_zeros_in_grad` worth calculating (/ implementing) ??
+        # the `Megatron`-specific implementation is at:
+        # [megatron.optimizer.clip_grads.count_zeros_fp32](./optimizer/clip_grads.py)
+        # For now, explicitly set to None
+        # ---------------------------------------------------------------------
         num_zeros_in_grad = None
         loss_reduced = {}
         for key in losses_reduced[0]:
@@ -927,29 +933,28 @@ def train_step(
                 losses_reduced_for_key
             )
         return loss_reduced, skipped_iter, grad_norm, num_zeros_in_grad
+    if update_successful:
+        increment = (
+            get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+        )
+        opt_param_scheduler.step(increment=increment)
+        skipped_iter = 0
     else:
-        if update_successful:
-            increment = (
-                get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+        skipped_iter = 1
+
+    # Empty unused memory.
+    if args.empty_unused_memory_level >= 2 and accelerator is not None:
+        accelerator.empty_cache()
+
+    if mpu.is_pipeline_last_stage(ignore_virtual=True):
+        # Average loss across microbatches.
+        loss_reduced = {}
+        for key in losses_reduced[0]:
+            losses_reduced_for_key = [x[key] for x in losses_reduced]
+            loss_reduced[key] = sum(losses_reduced_for_key) / len(
+                losses_reduced_for_key
             )
-            opt_param_scheduler.step(increment=increment)
-            skipped_iter = 0
-        else:
-            skipped_iter = 1
-
-        # Empty unused memory.
-        if args.empty_unused_memory_level >= 2:
-            torch.cuda.empty_cache()
-
-        if mpu.is_pipeline_last_stage(ignore_virtual=True):
-            # Average loss across microbatches.
-            loss_reduced = {}
-            for key in losses_reduced[0]:
-                losses_reduced_for_key = [x[key] for x in losses_reduced]
-                loss_reduced[key] = sum(losses_reduced_for_key) / len(
-                    losses_reduced_for_key
-                )
-            return loss_reduced, skipped_iter, grad_norm, num_zeros_in_grad
+        return loss_reduced, skipped_iter, grad_norm, num_zeros_in_grad
     return {}, skipped_iter, grad_norm, num_zeros_in_grad
 
 
@@ -983,10 +988,12 @@ def train(
     """Train the model function."""
     args = get_args()
     timers = get_timers()
-    assert args is not None
-    assert timers is not None
+    accelerator = get_accelerator()
+    assert args is not None and timers is not None and accelerator is not None
     # Write args to tensorboard
     write_args_to_tensorboard()
+    assert accelerator is not None
+    setup_profiler(args, accelerator.device_name())
     if args.random_ltd:
         # random-ltd requires different randomness on each rank
         import random
@@ -1002,6 +1009,7 @@ def train(
     iteration = args.iteration
     # Translate args to core configuration
     config = core_transformer_config_from_args(args)
+    num_skipped_iters = 0
     if not args.deepspeed:
         config.grad_scale_func = optimizer.scale_loss
     config.timers = timers
@@ -1029,6 +1037,7 @@ def train(
     while iteration < args.train_iters and (
         args.train_tokens is None or args.consumed_train_tokens < args.train_tokens
     ):
+        trigger(on_step_begin)
         update_num_microbatches(args.consumed_train_samples)
         if args.deepspeed:
             # inform deepspeed of any batch size changes
@@ -1051,10 +1060,12 @@ def train(
             [i <= (iteration + 1) <= j for (i, j) in ranges_to_skip]
         ):
             log.info(f"Caught {iteration + 1} in 'ranges_to_skip', skipping!")
-            loss_dict = {}
+            # total_loss_dict = {"skipped iterations": }
             skipped_iter = 1
+            total_loss_dict["skipped iterations"] += skipped_iter
             grad_norm = None
             num_zeros_in_grad = None
+            num_skipped_iters += 1
         else:
             if os.getenv("TORCH_PROFILER_ENABLE") == "2":
                 from torch.profiler import profile, ProfilerActivity
@@ -1187,9 +1198,7 @@ def train(
         # Exiting based on duration
         if args.exit_duration_in_mins:
             train_time = (time.time() - _TRAIN_START_TIME) / 60.0
-            done_cuda = get_accelerator().IntTensor(
-                [train_time > args.exit_duration_in_mins]
-            )
+            done_cuda = accelerator.IntTensor([train_time > args.exit_duration_in_mins])
             torch.distributed.all_reduce(done_cuda, op=torch.distributed.ReduceOp.MAX)
             done = done_cuda.item()
             if done:
@@ -1208,6 +1217,19 @@ def train(
             torch.distributed.barrier()
             print_datetime("exiting program at iteration {}".format(iteration))
             sys.exit()
+        trigger(on_step_end)
+        # Exiting based on kill switch file
+        if found_kill_switch():
+            if args.save and not saved_checkpoint:
+                save_checkpoint_and_time(
+                    iteration, model, optimizer, opt_param_scheduler
+                )
+            torch.distributed.barrier()
+            print_datetime(
+                f"Detected kill switch at {args.kill_switch_file}, "
+                f"iteration={iteration}. Exiting"
+            )
+            sys.exit()
     return iteration
 
 
@@ -1222,7 +1244,8 @@ def evaluate(
 ):
     """Evaluation."""
     args = get_args()
-    assert args is not None
+    accelerator = get_accelerator()
+    assert args is not None and accelerator is not None
     if args.vision_pretraining and args.vision_pretraining_type == "dino":
         compute_feature_bank(model)
 
@@ -1244,6 +1267,10 @@ def evaluate(
 
     total_loss_dict = {}
 
+    num_microbatches = get_num_microbatches()
+    assert num_microbatches is not None
+    forward_backward_func = get_forward_backward_func()
+
     with torch.no_grad():
         iteration = 0
         while iteration < args.eval_iters:
@@ -1251,20 +1278,19 @@ def evaluate(
             if verbose and iteration % args.log_interval == 0:
                 log.info("Evaluating iter {}/{}".format(iteration, args.eval_iters))
 
-            forward_backward_func = get_forward_backward_func()
             # Don't care about timing during evaluation
             config.timers = None
             if args.deepspeed and args.ds_pipeline_enabled:
                 # DeepSpeed uses eval_batch() and already aggregates losses.
                 assert isinstance(model, list) and len(model) == 1
                 loss = model[0].eval_batch(data_iterator)
-                loss_dicts = [{"lm loss": loss}] * get_num_microbatches()
+                loss_dicts = [{"lm loss": loss}] * num_microbatches
             else:
                 loss_dicts = forward_backward_func(
                     forward_step_func=forward_step_func,
                     data_iterator=data_iterator,
                     model=model,
-                    num_microbatches=get_num_microbatches(),
+                    num_microbatches=num_microbatches,
                     seq_length=args.seq_length,
                     micro_batch_size=args.micro_batch_size,
                     decoder_seq_length=args.decoder_seq_length,
@@ -1274,7 +1300,7 @@ def evaluate(
 
             # Empty unused memory
             if args.empty_unused_memory_level >= 1:
-                torch.cuda.empty_cache()
+                accelerator.empty_cache()
 
             if mpu.is_pipeline_last_stage(ignore_virtual=True):
                 # Reduce across processes.
@@ -1282,16 +1308,14 @@ def evaluate(
                     for key in loss_dict:
                         if "moe" not in key:
                             total_loss_dict[key] = (
-                                total_loss_dict.get(
-                                    key, get_accelerator().FloatTensor([0.0])
-                                )
+                                total_loss_dict.get(key, accelerator.FloatTensor([0.0]))
                                 + loss_dict[key]
                             )
 
             args.consumed_valid_samples += (
                 mpu.get_data_parallel_world_size()
                 * args.micro_batch_size
-                * get_num_microbatches()
+                * num_microbatches
             )
         collected_non_loss_data = None
         if process_non_loss_data_func is not None and is_last_rank():
@@ -1299,7 +1323,7 @@ def evaluate(
                 forward_step_func=forward_step_func,
                 data_iterator=data_iterator,
                 model=model,
-                num_microbatches=get_num_microbatches(),
+                num_microbatches=num_microbatches,
                 seq_length=args.seq_length,
                 micro_batch_size=args.micro_batch_size,
                 decoder_seq_length=args.decoder_seq_length,
@@ -1312,7 +1336,7 @@ def evaluate(
         model_module.train()
 
     for key in total_loss_dict:
-        total_loss_dict[key] /= args.eval_iters * get_num_microbatches()
+        total_loss_dict[key] /= args.eval_iters * num_microbatches
 
     if args.curriculum_learning_legacy and not args.no_pipeline_parallel:
         # roll back to actual curriculum seqlen at the end of eval.
@@ -1443,7 +1467,8 @@ def build_train_valid_test_datasets(build_train_valid_test_datasets_provider):
 def build_train_valid_test_data_loaders(build_train_valid_test_datasets_provider):
     """Build pretraining data loaders."""
     args = get_args()
-    assert args is not None
+    accelerator = get_accelerator()
+    assert args is not None and accelerator is not None
     (train_dataloader, valid_dataloader, test_dataloader) = (None, None, None)
     log.info("> building train, validation, and test datasets ...")
     # Backward compatibility, assume fixed batch size.
@@ -1486,11 +1511,9 @@ def build_train_valid_test_data_loaders(build_train_valid_test_datasets_provider
         do_valid = valid_dataloader is not None and args.eval_iters > 0
         do_test = test_dataloader is not None and args.eval_iters > 0
         # Need to broadcast num_tokens and num_type_tokens.
-        flags = get_accelerator().LongTensor(
-            [int(do_train), int(do_valid), int(do_test)]
-        )
+        flags = accelerator.LongTensor([int(do_train), int(do_valid), int(do_test)])
     else:
-        flags = get_accelerator().LongTensor([0, 0, 0])
+        flags = accelerator.LongTensor([0, 0, 0])
     # Broadcast num tokens.
     if ds_sequence_parallel:
         torch.distributed.broadcast(
