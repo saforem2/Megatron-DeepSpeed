@@ -645,6 +645,12 @@ def training_log(
         )
         log_string += " [LM]TFLOPs={:.2f} |".format(tflops_lm_per_gpu)
         log_string += " [DS]TFLOPs={:.2f} |".format(tflops)
+        if wandb is not None and getattr(wandb, "run", None) is not None:
+            wandb_metrics |= {
+                "training/skiped_iterations": total_loss_dict[skipped_iters_key]
+            }
+            wandb_metrics |= {"training/nan_iterations": total_loss_dict[nan_iters_key]}
+            wandb.log(wandb_metrics)
         total_loss_dict[advanced_iters_key] = 0
         total_loss_dict[skipped_iters_key] = 0
         total_loss_dict[nan_iters_key] = 0
@@ -654,12 +660,6 @@ def training_log(
             # Report memory after optimizer state has been initialized.
             report_memory("(after {} iterations)".format(iteration))
             report_memory_flag = False
-        if wandb is not None and getattr(wandb, "run", None) is not None:
-            wandb_metrics |= {
-                "training/skiped_iterations": total_loss_dict[skipped_iters_key]
-            }
-            wandb_metrics |= {"training/nan_iterations": total_loss_dict[nan_iters_key]}
-            wandb.log(wandb_metrics)
         if timers is not None:
             timers.log(timers_to_log, normalizer=args.log_interval)
 
