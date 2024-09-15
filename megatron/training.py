@@ -1004,7 +1004,7 @@ def train(
         model_module.train()
     # Tracking loss.
     total_loss_dict = {}
-    loss_dict = {}
+    loss_dict = {"skipped_iter": 0}
     # Iterations.
     iteration = args.iteration
     # Translate args to core configuration
@@ -1061,11 +1061,22 @@ def train(
         ):
             log.info(f"Caught {iteration + 1} in 'ranges_to_skip', skipping!")
             # total_loss_dict = {"skipped iterations": }
+            # loss_dict
             skipped_iter = 1
-            total_loss_dict["skipped iterations"] += skipped_iter
-            grad_norm = None
+            # grad_norm = None
             num_zeros_in_grad = None
             num_skipped_iters += 1
+            increment = (
+                get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+            )
+            model[0].skipped_steps += 1
+            model[0].global_steps += 1
+            model[0].micro_steps += 1
+            model[0].global_samples += model[0].train_batch_size()
+            # model[0].step(lr_kwargs={"increment": increment})
+            # grad_norm = model[0].get_global_grad_norm()
+            # update_successful = model[0].was_step_applied()
+            opt_param_scheduler.step(increment=increment)
         else:
             if os.getenv("TORCH_PROFILER_ENABLE") == "2":
                 from torch.profiler import profile, ProfilerActivity
