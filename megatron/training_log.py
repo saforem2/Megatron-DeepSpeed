@@ -92,7 +92,10 @@ def training_log(
                 + loss_dict[key]
             )
         else:
-            value = loss_dict[key].float().sum().item()
+            try:
+                value = loss_dict[key].float().sum().item()
+            except AttributeError:
+                value = loss_dict[key]
             is_nan = value == float("inf") or value == -float("inf") or value != value
             got_nan = got_nan or is_nan
     total_loss_dict[nan_iters_key] = total_loss_dict.get(nan_iters_key, 0) + int(
