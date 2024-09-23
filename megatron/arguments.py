@@ -780,6 +780,15 @@ def _add_regularization_args(parser):
                        help='Weight decay increment function.')
     group.add_argument('--clip-grad', type=float, default=1.0,
                        help='Gradient clipping based on global L2 norm.')
+    group.add_argument('--sophiag-beta1', type=float, default=0.9,
+                       help='First coefficient for computing running averages '
+                       'of gradient and its hessian')
+    group.add_argument('--sophiag-beta2', type=float, default=0.95,
+                       help='Second coefficient for computing running averages '
+                       'of gradient and its hessian')
+    group.add_argument('--sophiag-rho', type=float, default=0.01,
+                       help='SophiaG clipping threshhold')
+
     group.add_argument('--adam-beta1', type=float, default=0.9,
                        help='First coefficient for computing running averages '
                        'of gradient and its square')
@@ -946,6 +955,7 @@ def _add_training_args(parser):
         choices=[
             'adam',
             'adamw',
+            'sophiag',
             'sgd',
             'ds.fusedlamb',
             'ipex.lamb',
