@@ -822,6 +822,8 @@ def train_step(
     timers = get_timers()
     accelerator = get_accelerator()
     assert args is not None and timers is not None and accelerator is not None
+    grad_norm = None
+    num_zeros_in_grad = None
     if args.deepspeed and args.ds_pipeline_enabled:
         num_zeros_in_grad = 0
         assert isinstance(model[0], deepspeed.PipelineEngine)
@@ -919,6 +921,10 @@ def train_step(
     if args.deepspeed:
         skipped_iter = 0 if update_successful else 1
         grad_norm = model[0].get_global_grad_norm()
+        # Empty unused memory.
+        if args.empty_unused_memory_level >= 2 and accelerator is not None:
+            accelerator.empty_cache()
+
         # XXX: [saforem2]: ----------------------------------------------------
         # Is `num_zeros_in_grad` worth calculating (/ implementing) ??
         # the `Megatron`-specific implementation is at:
@@ -1002,9 +1008,10 @@ def train(
     # Turn on training mode which enables dropout.
     for model_module in model:
         model_module.train()
+    grad_norm = None
     # Tracking loss.
     total_loss_dict = {}
-    loss_dict = {}
+    loss_dict = {"skipped_iter": 0}
     # Iterations.
     iteration = args.iteration
     # Translate args to core configuration
@@ -1060,12 +1067,31 @@ def train(
             [i <= (iteration + 1) <= j for (i, j) in ranges_to_skip]
         ):
             log.info(f"Caught {iteration + 1} in 'ranges_to_skip', skipping!")
-            # total_loss_dict = {"skipped iterations": }
             skipped_iter = 1
-            total_loss_dict["skipped iterations"] += skipped_iter
-            grad_norm = None
-            num_zeros_in_grad = None
             num_skipped_iters += 1
+            num_zeros_in_grad = None
+            gas = args.deepspeed_config_dict["gradient_accumulation_steps"]
+            for microstep in range(gas):
+                _batch = next(train_data_iterator)
+                _tokens = _batch["text"]
+                if (
+                    iteration < 10
+                    and os.environ.get("DUMP_SKIPPED_ITERS", None)
+                    and RANK == 0
+                ):
+                    log.info(f"{_tokens.shape}, {len(train_data_iterator)=}")
+                    log.info(
+                        f"{iteration=} [{microstep}/{gas}]: ({_tokens.shape})\n{_tokens[:10]=}"
+                    )
+
+            increment = (
+                get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+            )
+            model[0].skipped_steps += 1
+            model[0].global_steps += 1
+            model[0].micro_steps += 1
+            model[0].global_samples += model[0].train_batch_size()
+            opt_param_scheduler.step(increment=increment)
         else:
             if os.getenv("TORCH_PROFILER_ENABLE") == "2":
                 from torch.profiler import profile, ProfilerActivity
@@ -1074,7 +1100,7 @@ def train(
                     activities = [
                         ProfilerActivity.CPU,
                         ProfilerActivity.CUDA,
-                        ProfilerActivity.XPU,
+                        ProfilerActivity.XPU,  # type:ignore
                     ]
                 except Exception:
                     log.warning("TORCH PROFILER WARNING: XPU is not supported")
