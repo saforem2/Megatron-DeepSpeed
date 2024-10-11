@@ -1,3 +1,4 @@
+# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company.
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 """Megatron arguments."""
@@ -44,6 +45,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     parser = _add_inference_args(parser)
     parser = _add_transformer_engine_args(parser)
     parser = _add_retro_args(parser)
+    parser = _add_profiler_args(parser)
 
     # Custom arguments.
     if extra_args_provider is not None:
@@ -73,6 +75,12 @@ def validate_args(args, defaults={}):
     assert args.world_size % args.tensor_model_parallel_size == 0, 'world size'\
         ' ({}) is not divisible by tensor model parallel size ({})'.format(
             args.world_size, args.tensor_model_parallel_size)
+    # Zero bubble pipeline is defined on deepspeed's scheduler
+    if args.enable_zbh1_pipeline:
+        assert args.deepspeed, 'Use DeepSpeed to use zero-bubble H1 pipeline'
+        assert args.sequence_parallel == False, "Sequence Parallel not tested, proceed at own will by removing this line"
+    if args.enable_zbh1_exact_semantics:
+        assert args.enable_zbh1_pipeline, 'Exact semantics require ZBH1 pipeline enabled'
     # Pipeline model parallel size.
     args.pipeline_model_parallel_size = min(
         args.pipeline_model_parallel_size,
@@ -95,8 +103,8 @@ def validate_args(args, defaults={}):
                           args.ds_sequence_parallel_size
     assert args.world_size % model_parallel_size == 0, 'world size ({}) is not'\
         ' divisible by tensor parallel size ({}) times pipeline parallel ' \
-        'size ({})'.format(args.world_size, args.tensor_model_parallel_size,
-                           args.pipeline_model_parallel_size)
+        'size ({}) times seqence parallel size ({})'.format(args.world_size, args.tensor_model_parallel_size,
+                           args.pipeline_model_parallel_size, args.ds_sequence_parallel_size)
     args.data_parallel_size = args.world_size // model_parallel_size
     if args.rank == 0:
         print('using world size: {}, data-parallel-size: {}, '
@@ -391,7 +399,8 @@ def validate_args(args, defaults={}):
         args.async_tensor_model_parallel_allreduce = False
 
     if not args.use_dataset_only:
-        if os.environ.get('CUDA_DEVICE_MAX_CONNECTIONS') != "1":
+        if deepspeed.accelerator.get_accelerator().device_name() == "cuda" \
+            and os.environ.get('CUDA_DEVICE_MAX_CONNECTIONS') != "1":
             if args.sequence_parallel:
                 raise RuntimeError(
                     "Using sequence parallelism requires setting the environment variable "
@@ -421,7 +430,7 @@ def validate_args(args, defaults={}):
     args.compression_training = False
 
     # FlashAttention
-    args.use_flash_attn = args.use_flash_attn_v1 or args.use_flash_attn_triton or args.use_flash_attn_v2
+    args.use_flash_attn = args.use_flash_attn_v1 or args.use_flash_attn_triton or args.use_flash_attn_v2 or args.use_flash_attn_builder
 
     # AML
     if args.aml_data_download_path is not None:
@@ -672,6 +681,9 @@ def _add_network_size_args(parser):
                        help='Untie embeddings and output weights.'),
     group.add_argument('--embedding-weights-in-fp32', action='store_true',
                        help='Cast word embedding weights to fp32 before embedding fwd.'),
+    group.add_argument('--kill-switch-file', type=str, default=None,
+                       help='Location of kill switch file. '
+                            'If found will automatically exit the program at runtime.')
     return parser
 
 
@@ -740,6 +752,12 @@ def _add_logging_args(parser):
     group.add_argument('--log-world-size-to-tensorboard',
                        action='store_true',
                        help='Enable world size logging to tensorboard.')
+    group.add_argument('--wandb-project', type=str, default='',
+                       help='The wandb project name. Ignore wandb by default.')
+    group.add_argument('--wandb-exp-name', type=str, default='',
+                       help='The wandb experiment name.')
+    group.add_argument('--wandb-save-dir', type=str, default='',
+                       help='Path to save the wandb results locally.')
 
     return parser
 
@@ -835,6 +853,10 @@ def _add_training_args(parser):
                        'uniformly divided recompute unit, '
                        '2) block: the number of individual Transformer layers '
                        'to recompute within each pipeline stage.')
+    group.add_argument('--enable-zbh1-pipeline', action='store_true',
+                       help='Activate zero bubble pipeline parallelism schedule method')
+    group.add_argument('--enable-zbh1-exact-semantics', action='store_true',
+                       help='Use an exact semantics for zbh1 schedule, might be slower than the default.')
 
     # deprecated
     # HACK: added back arguments because DeepSpeed still relies on the old
@@ -899,6 +921,9 @@ def _add_training_args(parser):
     group.add_argument('--create-moe-param-group', action='store_true',
                        help='Create separate groups for MoE params.'
                        'This is necessary for techniques like ZeRO.')
+    group.add_argument('--disable-moe-top2-2nd-expert-sampling', action='store_false',
+                       help='Disable MoE top2 sampling of the 2nd expert. Instead of sampling, use argmax.',
+                       dest='moe_top2_2nd_expert_sampling')
     group.add_argument('--use-flash-attn', '--use-flash-attn-v1', dest='use_flash_attn_v1', action='store_true',
                        help='use first version FlashAttention implementation of attention. '
                        'https://arxiv.org/abs/2205.14135')
@@ -907,6 +932,8 @@ def _add_training_args(parser):
                        'https://arxiv.org/abs/2307.08691')
     group.add_argument('--use-flash-attn-triton', action='store_true',
                        help='use FlashAttention implementation of attention using Triton.')
+    group.add_argument('--use-flash-attn-builder', action='store_true',
+                       help='use FlashAttention op builder.')
     group.add_argument('--disable-bias-linear', action='store_false',
                        help='Disable bias in the linear layers',
                        dest='add_bias_linear')
@@ -1133,7 +1160,7 @@ def _add_distributed_args(parser):
                        help='overlap pipeline parallel communication with forward and backward chunks',
                        dest='overlap_p2p_comm')
     group.add_argument('--distributed-backend', default='nccl',
-                       choices=['nccl', 'gloo', 'ccl'],
+                       choices=['nccl', 'gloo', 'ccl', 'hccl'],
                        help='Which backend to use for distributed training.')
     group.add_argument('--distributed-timeout-minutes', type=int, default=10,
                        help='Timeout minutes for torch.distributed.')
@@ -1273,6 +1300,8 @@ def _add_data_args(parser):
                        help='What type of tokenizer to use.')
     group.add_argument('--tokenizer-model', type=str, default=None,
                        help='Sentencepiece tokenizer model.')
+    group.add_argument('--trust-remote-code', action='store_true', default=False,
+                       help='To run HFTokenizer model from local path.')
     group.add_argument('--data-impl', type=str, default='infer',
                        choices=['mmap', 'infer'],
                        help='Implementation of indexed datasets.')
@@ -1524,5 +1553,28 @@ def _add_distillation_args(parser):
     
     group.add_argument('--load-teacher', type=str, default=None,
                        help='Directory containing a teacher model checkpoint.')
+
+    return parser
+
+
+def _add_profiler_args(parser):
+    group = parser.add_argument_group(title='profiling configuration')
+
+    group.add_argument("--profile",
+     type=str,
+     default=None,
+     choices=['pt', 'pt-full'],
+     help="Enable profiling, pt-full gives call stack compared to pt")
+
+    group.add_argument("--profile_steps",
+     type=str,
+     default='2,3',
+     help="Which steps to profile. Format: <start step>,<end step>")
+    
+    group.add_argument("--profile-ranks",
+     type=int,
+     nargs='+',
+     default=None,
+     help="Which ranks to profile. Format: 0 1 2 3")
 
     return parser
