@@ -1,0 +1,17 @@
+hjson
+ninja
+psutil
+py-cpuinfo
+pydantic
+tqdm
+transformers
+bitsandbytes
+sentencepiece
+einops
+xgboost
+fixedint
+pybind11
+six
+numpy<2
+schedulefree
+packaging>=20.0
