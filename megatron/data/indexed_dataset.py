@@ -15,14 +15,31 @@
 
 from functools import lru_cache
 import os
+import logging
 import shutil
 import struct
 from itertools import accumulate
 
 import numpy as np
 import torch
-from megatron import print_rank_0
+# from megatron import print_rank_0
+from megatron.utils import Profile
 
+try:
+    import ezpz as ez
+    RANK = ez.get_rank()
+except Exception:
+    RANK = torch.distributed.get_rank()
+
+# NOTE: [logging]-----------------------------------------------------------
+# - Set logging level to "INFO" on RANK == 0, "CRITICAL" on all other ranks
+log = logging.getLogger(__name__)
+LOG_LEVEL = str(os.environ.get("LOG_LEVEL", "INFO")).upper()
+log.setLevel(LOG_LEVEL) if RANK == 0 else log.setLevel("CRITICAL")
+# --------------------------------------------------------------------------
+
+
+dlp = Profile("DATASET")
 
 def __best_fitting_dtype(vocab_size=None):
     if vocab_size is not None and vocab_size < 65500:
@@ -47,32 +64,21 @@ def infer_dataset_impl(path):
                 return None
     else:
         print(f"Dataset does not exist: {path}")
-        print(
-            "Path should be a basename that both .idx and .bin can be "
-            "appended to get full filenames."
-        )
+        print("Path should be a basename that both .idx and .bin can be appended to get full filenames.")
         return None
 
 
 def make_builder(out_file, impl, vocab_size=None):
     if impl == 'mmap':
-        return MMapIndexedDatasetBuilder(
-            out_file,
-            dtype=__best_fitting_dtype(vocab_size)
-        )
+        return MMapIndexedDatasetBuilder(out_file, dtype=__best_fitting_dtype(vocab_size))
     else:
         return IndexedDatasetBuilder(out_file)
 
 
 def make_dataset(path, impl, skip_warmup=False):
     if not IndexedDataset.exists(path):
-        print(
-            f"Dataset does not exist: {path}"
-        )
-        print(
-            "Path should be a basename that both .idx and .bin "
-            "can be appended to get full filenames."
-        )
+        print(f"Dataset does not exist: {path}")
+        print("Path should be a basename that both .idx and .bin can be appended to get full filenames.")
         return None
     if impl == 'infer':
         impl = infer_dataset_impl(path)
@@ -147,7 +153,7 @@ class IndexedDataset(torch.utils.data.Dataset):
         self.path = path
         self.data_file = None
         self.read_index(path)
-
+    @dlp.log
     def read_index(self, path):
         with open(index_file_path(path), 'rb') as f:
             magic = f.read(8)
@@ -165,7 +171,7 @@ class IndexedDataset(torch.utils.data.Dataset):
             self.data_offsets = read_longs(f, self._len + 1)
             self.sizes = read_longs(f, self.s)
             self.doc_idx = read_longs(f, self.doc_count)
-
+    @dlp.log
     def read_data(self, path):
         self.data_file = open(data_file_path(path), 'rb', buffering=0)
 
@@ -178,15 +184,14 @@ class IndexedDataset(torch.utils.data.Dataset):
             self.data_file.close()
 
     # @lru_cache(maxsize=8)
-    def __getitem__(self, idx) -> np.ndarray:
+    @dlp.log
+    def __getitem__(self, idx):
         if not self.data_file:
             self.read_data(self.path)
         if isinstance(idx, int):
             i = idx
             self.check_index(i)
-            tensor_size = (
-                self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]]
-            )
+            tensor_size = self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]]
             a = np.empty(tensor_size, dtype=self.dtype)
             self.data_file.seek(self.data_offsets[i] * self.element_size)
             self.data_file.readinto(a)
@@ -194,16 +199,15 @@ class IndexedDataset(torch.utils.data.Dataset):
         elif isinstance(idx, slice):
             start, stop, step = idx.indices(len(self))
             if step != 1:
-                raise ValueError(
-                    "Slices into indexed_dataset must be contiguous"
-                )
+                raise ValueError("Slices into indexed_dataset must be contiguous")
             sizes = self.sizes[self.dim_offsets[start]:self.dim_offsets[stop]]
             size = sum(sizes)
             a = np.empty(size, dtype=self.dtype)
             self.data_file.seek(self.data_offsets[start] * self.element_size)
             self.data_file.readinto(a)
             offsets = list(accumulate(sizes))
-            return np.split(a, offsets[:-1])
+            sents = np.split(a, offsets[:-1])
+            return sents
 
     def __len__(self):
         return self._len
@@ -217,8 +221,7 @@ class IndexedDataset(torch.utils.data.Dataset):
     @staticmethod
     def exists(path):
         return (
-            os.path.exists(index_file_path(path))
-            and os.path.exists(data_file_path(path))
+            os.path.exists(index_file_path(path)) and os.path.exists(data_file_path(path))
         )
 
     @property
@@ -236,7 +239,7 @@ class IndexedCachedDataset(IndexedDataset):
     @property
     def supports_prefetch(self):
         return True
-
+    @dlp.log
     def prefetch(self, indices):
         if all(i in self.cache_index for i in indices):
             return
@@ -262,13 +265,12 @@ class IndexedCachedDataset(IndexedDataset):
             self.data_file = None
 
     # @lru_cache(maxsize=8)
+    @dlp.log
     def __getitem__(self, idx):
         if isinstance(idx, int):
             i = idx
             self.check_index(i)
-            tensor_size = (
-                    self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]]
-            )
+            tensor_size = self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]]
             a = np.empty(tensor_size, dtype=self.dtype)
             ptx = self.cache_index[i]
             np.copyto(a, self.cache[ptx: ptx + a.size])
@@ -291,7 +293,7 @@ class IndexedDatasetBuilder(object):
         np.float32: 4,
         np.float64: 8,
     }
-
+    @dlp.log
     def __init__(self, out_file, dtype=np.int32):
         self.out_file = open(out_file, 'wb')
         self.dtype = dtype
@@ -300,19 +302,17 @@ class IndexedDatasetBuilder(object):
         self.sizes = []
         self.element_size = self.element_sizes[self.dtype]
         self.doc_idx = [0]
-
+    @dlp.log
     def add_item(self, tensor):
         bytes = self.out_file.write(np.array(tensor.numpy(), dtype=self.dtype))
-        self.data_offsets.append(
-            self.data_offsets[-1] + bytes / self.element_size
-        )
+        self.data_offsets.append(self.data_offsets[-1] + bytes / self.element_size)
         for s in tensor.size():
             self.sizes.append(s)
         self.dim_offsets.append(self.dim_offsets[-1] + len(tensor.size()))
 
     def end_document(self):
         self.doc_idx.append(len(self.sizes))
-
+    @dlp.log
     def merge_file_(self, another_file):
         index = IndexedDataset(another_file)
         assert index.dtype == self.dtype
@@ -344,9 +344,7 @@ class IndexedDatasetBuilder(object):
         index.write(b'TNTIDX\x00\x00')
         index.write(struct.pack('<Q', 1))
         index.write(struct.pack('<QQ', code(self.dtype), self.element_size))
-        index.write(
-            struct.pack('<QQ', len(self.data_offsets) - 1, len(self.sizes))
-        )
+        index.write(struct.pack('<QQ', len(self.data_offsets) - 1, len(self.sizes)))
         index.write(struct.pack('<Q', len(self.doc_idx)))
         write_longs(index, self.dim_offsets)
         write_longs(index, self.data_offsets)
@@ -354,7 +352,7 @@ class IndexedDatasetBuilder(object):
         write_longs(index, self.doc_idx)
         index.close()
 
-
+@dlp.log
 def _warmup_mmap_file(path):
     with open(path, 'rb') as stream:
         while stream.read(100 * 1024 * 1024):
@@ -411,21 +409,16 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
 
                 @staticmethod
                 def _get_pointers(sizes, npdtype):
-                    """Return a numpy array of byte offsets
-                    given a list of sizes.
+                    """Return a numpy array of byte offsets given a list of sizes.
 
                     Multiplies values in the sizes array by dtype size (bytes),
                     and then computes an exclusive scan to get byte offsets.
                     """
 
                     # compute element sizes in bytes
-                    pointers, _ = get_pointers_with_total(
-                        sizes,
-                        dtype().itemsize,
-                        npdtype
-                    )
+                    pointers, _ = get_pointers_with_total(sizes, dtype().itemsize, npdtype)
                     return pointers
-
+                @dlp.log
                 def write(self, sizes, doc_idx):
                     self._file.write(struct.pack('<Q', len(sizes)))
                     self._file.write(struct.pack('<Q', len(doc_idx)))
@@ -447,6 +440,7 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
 
             return _Writer()
 
+        @dlp.log
         def __init__(self, path, skip_warmup=False):
             with open(path, 'rb') as stream:
                 magic_test = stream.read(9)
@@ -466,31 +460,23 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
                 offset = stream.tell()
 
             if not skip_warmup:
-                print_rank_0("    warming up index mmap file...")
+                log.info("    warming up index mmap file...")
                 _warmup_mmap_file(path)
 
             self._bin_buffer_mmap = np.memmap(path, mode='r', order='C')
             self._bin_buffer = memoryview(self._bin_buffer_mmap)
-            print_rank_0("    reading sizes...")
+            log.info("    reading sizes...")
             self._sizes = np.frombuffer(
                 self._bin_buffer,
                 dtype=np.int32,
                 count=self._len,
                 offset=offset)
-            print_rank_0("    reading pointers...")
-            self._pointers = np.frombuffer(
-                self._bin_buffer,
-                dtype=np.int64,
-                count=self._len,
-                offset=offset + self._sizes.nbytes
-            )
-            print_rank_0("    reading document index...")
-            self._doc_idx = np.frombuffer(
-                self._bin_buffer,
-                dtype=np.int64,
-                count=self._doc_count,
-                offset=offset + self._sizes.nbytes + self._pointers.nbytes
-            )
+            log.info("    reading pointers...")
+            self._pointers = np.frombuffer(self._bin_buffer, dtype=np.int64, count=self._len,
+                                           offset=offset + self._sizes.nbytes)
+            log.info("    reading document index...")
+            self._doc_idx = np.frombuffer(self._bin_buffer, dtype=np.int64, count=self._doc_count,
+                                          offset=offset + self._sizes.nbytes + self._pointers.nbytes)
 
         def __del__(self):
             self._bin_buffer_mmap._mmap.close()
@@ -530,21 +516,18 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
     def __setstate__(self, state):
         self._do_init(state, skip_warmup=True)
 
+    @dlp.log
     def _do_init(self, path, skip_warmup):
         self._path = path
         self._index = self.Index(index_file_path(self._path), skip_warmup)
 
         if not skip_warmup:
-            print_rank_0("    warming up data mmap file...")
+            log.info("    warming up data mmap file...")
             _warmup_mmap_file(data_file_path(self._path))
-        print_rank_0("    creating numpy buffer of mmap...")
-        print_rank_0(data_file_path(self._path))
-        self._bin_buffer_mmap = np.memmap(
-            data_file_path(self._path),
-            mode='r',
-            order='C'
-        )
-        print_rank_0("    creating memory view of numpy buffer...")
+        log.info("    creating numpy buffer of mmap...")
+        log.info(data_file_path(self._path))
+        self._bin_buffer_mmap = np.memmap(data_file_path(self._path), mode='r', order='C')
+        log.info("    creating memory view of numpy buffer...")
         self._bin_buffer = memoryview(self._bin_buffer_mmap)
 
     def __del__(self):
@@ -556,6 +539,7 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
         return len(self._index)
 
     # @lru_cache(maxsize=8)
+    @dlp.log
     def __getitem__(self, idx):
         if isinstance(idx, (int, np.integer)):
             ptr, size = self._index[idx]
@@ -565,26 +549,19 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
         elif isinstance(idx, slice):
             start, stop, step = idx.indices(len(self))
             if step != 1:
-                raise ValueError(
-                    "Slices into indexed_dataset must be contiguous"
-                )
+                raise ValueError("Slices into indexed_dataset must be contiguous")
             ptr = self._index._pointers[start]
             sizes = self._index._sizes[idx]
             offsets = list(accumulate(sizes))
             total_size = sum(sizes)
-            np_array = np.frombuffer(
-                self._bin_buffer,
-                dtype=self._index.dtype,
-                count=total_size,
-                offset=ptr
-            )
+            np_array = np.frombuffer(self._bin_buffer, dtype=self._index.dtype,
+                                     count=total_size, offset=ptr)
             sents = np.split(np_array, offsets[:-1])
             return sents
         else:
-            raise TypeError(
-                "Unexpected type received for idx: {}".format(type(idx))
-            )
+            raise TypeError("Unexpected type received for idx: {}".format(type(idx)))
 
+    @dlp.log
     def get(self, idx, offset=0, length=None):
         """ Retrieves a single item from the dataset with the option to only
         return a portion of the item.
@@ -623,8 +600,7 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
     @staticmethod
     def exists(path):
         return (
-            os.path.exists(index_file_path(path))
-            and os.path.exists(data_file_path(path))
+            os.path.exists(index_file_path(path)) and os.path.exists(data_file_path(path))
         )
 
     @property
@@ -638,12 +614,12 @@ class MMapIndexedDatasetBuilder(object):
         self._dtype = dtype
         self._sizes = []
         self._doc_idx = [0]
-
+    @dlp.log
     def add_item(self, tensor):
         np_array = np.array(tensor.numpy(), dtype=self._dtype)
         self._data_file.write(np_array.tobytes(order='C'))
         self._sizes.append(np_array.size)
-
+    @dlp.log
     def add_doc(self, tensor, sizes):
         np_array = np.array(tensor, dtype=self._dtype)
         self._data_file.write(np_array.tobytes(order='C'))
@@ -652,7 +628,7 @@ class MMapIndexedDatasetBuilder(object):
 
     def end_document(self):
         self._doc_idx.append(len(self._sizes))
-
+    @dlp.log
     def merge_file_(self, another_file):
         # Concatenate index
         index = MMapIndexedDataset.Index(index_file_path(another_file))
