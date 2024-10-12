@@ -114,8 +114,10 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
                     print_rank_0('> elapsed time for building concat dataset indices: '
                                  '{:.2f} (sec)'.format(time.time() - start_time))
                     return dataset_index, dataset_sample_index
-                
+
                 self.dataset_index, self.dataset_sample_index = _build_indices()
+                np_rng = np.random.RandomState(seed=dataset_builders[0].seed)
+                self.shuffle_index=np_rng.shuffle(range(self.num_samples))
                 for i in range(self.num_datasets):
                     self.desc += dataset_builders[i].prefix + ","
 
@@ -125,13 +127,9 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
 
             @dlp.log
             def __getitem__(self, idx):
-                if idx >= self.num_samples:
-                    print_rank_0(f"WARNING: index overflow encountered {idx} > {self.num_samples} for {self.dataset_builders[0].corpus}; will randomly pick one sample")
-                    id = np.random.randint(self.num_samples)
-                else:
-                    id = idx
-                i = self.dataset_index[idx]
-                j = self.dataset_sample_index[idx]
+                id_shuffle = self.shuffle_index[idx]
+                i = self.dataset_index[id_shuffle]
+                j = self.dataset_sample_index[id_shuffle]
                 if self.dataset_builders[i].build:
                     return self.dataset_builders[i].dataset[j]
                 else:
