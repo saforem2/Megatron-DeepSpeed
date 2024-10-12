@@ -117,6 +117,8 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
 
                 self.dataset_index, self.dataset_sample_index = _build_indices()
                 np_rng = np.random.RandomState(seed=dataset_builders[0].seed)
+                self.shuffle_index = np.arange(self.num_samples)
+                np_rng.shuffle(self.shuffle_index)
                 self.shuffle_index=np_rng.shuffle(range(self.num_samples))
                 for i in range(self.num_datasets):
                     self.desc += dataset_builders[i].prefix + ","
