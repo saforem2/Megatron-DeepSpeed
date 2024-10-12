@@ -1,4 +1,3 @@
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company.
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 """General utilities."""
@@ -7,21 +6,17 @@ import sys
 import os
 import time
 import logging
-from typing import Optional
+from typing import ContextManager, Optional
 
-# from ezpz.dist import get_rank
 import torch
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 
 from deepspeed.accelerator import get_accelerator
 
-ACCELERATOR = get_accelerator()
-assert ACCELERATOR is not None
-
-if ACCELERATOR.device_name() == "cuda":
+if get_accelerator().device_name() == "cuda":
     try:
-        from apex.multi_tensor_apply import multi_tensor_applier  # type: ignore
-        import amp_C  # type:ignore
+        from apex.multi_tensor_apply import multi_tensor_applier
+        import amp_C
 
         HAS_APEX = True
     except Exception:
@@ -41,48 +36,69 @@ log = logging.getLogger(__name__)
 
 
 _DLIO_PROFILER_EXIST = True
+_DFTRACER_EXIST=True
+
 try:
-    import dlio_profiler  # type: ignore
+    import dftracer
+except Exception:
+    _DFTRACER_EXIST=False
+
+try:
+    import dlio_profiler
 except Exception:
     _DLIO_PROFILER_EXIST = False
 
-if _DLIO_PROFILER_EXIST:
-    from dlio_profiler.logger import fn_interceptor as Profile  # type:ignore
-    from dlio_profiler.logger import dlio_logger as PerfTrace  # type:ignore
+
+if _DFTRACER_EXIST:
+    from dftracer.logger import dftracer as PerfTrace, dft_fn as Profile, DFTRACER_ENABLE as DFTRACER_ENABLE
+elif _DLIO_PROFILER_EXIST:
+    from dlio_profiler.logger import fn_interceptor as Profile
+    from dlio_profiler.logger import dlio_logger as PerfTrace
 else:
     from functools import wraps
-
-    class Profile:
-        def __init__(self, type="PROFILER"):
-            self._start = time.perf_counter()
-            self.type = type
-
-        def log(self, func):
+    # from contextlib import nullcontext
+    # Profile: ContextManager = nullcontext
+    #
+    # class Profile(nullable_schema)
+    class Profile(object):
+        def __init__(self,  cat, name=None, epoch=None, step=None, image_idx=None, image_size=None):
+            return 
+        def log(self,  func):
             return func
-
-        def iter(self, a):
-            return a
-
+        def log_init(self,  func):
+            return func
+        def iter(self,  func, iter_name="step"):
+            return func
         def __enter__(self):
-            self._start = time.perf_counter()
-
-        def __exit__(self, *args, **kwargs):
-            dt = time.perf_counter() - self._start
-            log.info(f"{self.type} took: {dt:.6f}s")
-
-    class dlio_logger:
-        def __init__(
-            self,
-        ):
+            return
+        def __exit__(self, type, value, traceback):
+            return
+        def update(self, epoch=None, step=None, image_idx=None, image_size=None, args={}):
+            return
+        def flush(self):
+            return
+        def reset(self):
+            return
+        def log_static(self, func):
+            return
+    class dftracer(object):
+        def __init__(self,):
             self.type = None
-
         def initialize_log(self, logfile=None, data_dir=None, process_id=-1):
             return
+        def get_time(self):
+            return
+        def enter_event(self):
+            return
+        def exit_event(self):
+            return
+        def log_event(self, name, cat, start_time, duration, string_args=None):
+            return
+        def finalize(self):
+            return
 
-        def iter(self, a):
-            return a
-
-    PerfTrace = dlio_logger()
+    PerfTrace = dftracer()
+    DFTRACER_ENABLE = False
 
 
 def get_logger(

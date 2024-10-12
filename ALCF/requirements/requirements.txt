@@ -15,3 +15,6 @@ six
 numpy<2
 schedulefree
 packaging>=20.0
+pydftracer
+wandb
+# git+https://github.com/saforem2/ezpz@main
