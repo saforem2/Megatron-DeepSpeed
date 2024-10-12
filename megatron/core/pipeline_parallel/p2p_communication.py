@@ -17,7 +17,7 @@ from megatron.core.parallel_state import (
 from megatron.core import ModelParallelConfig
 from deepspeed.accelerator import get_accelerator
 from megatron.utils import Profile
-Profile("PIPELINE")
+dlp = Profile("PIPELINE")
 # Types
 Shape = Union[List[int], torch.Size]
 
