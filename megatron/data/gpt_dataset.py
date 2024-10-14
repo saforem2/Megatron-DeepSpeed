@@ -94,7 +94,7 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
 
         class BuildConcatDataset(torch.utils.data.Dataset):
             @dlp.log
-            def __init__(self, dataset_builders):
+            def __init__(self, dataset_builders, shuffle=False):
                 self.dataset_builders = dataset_builders
                 self.num_datasets = len(dataset_builders)
                 self.num_samples = np.sum([d.num_samples for d in dataset_builders])
@@ -117,7 +117,9 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
 
                 self.dataset_index, self.dataset_sample_index = _build_indices()
                 np_rng = np.random.RandomState(seed=dataset_builders[0].seed)
-                self.shuffle_index=np_rng.shuffle(range(self.num_samples))
+                self.shuffle_index = np.arange(self.num_samples)
+                if shuffle:
+                    np_rng.shuffle(self.shuffle_index)
                 for i in range(self.num_datasets):
                     self.desc += dataset_builders[i].prefix + ","
 
@@ -146,7 +148,7 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
         valid_datasets = []
         test_datasets = []
         # Build individual datasets.
-
+        args = get_args()
         @dlp.log
         def build_corpus_datasets(dataset_type='train'):
             start_time = time.time()
@@ -172,7 +174,7 @@ def build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
             print_rank_0(" > number of samples for each corpus ")
             corpus_weights_achieved={}
             for c in corpus_list:
-                datasets.append(BuildConcatDataset(corpus_builders[c]))
+                datasets.append(BuildConcatDataset(corpus_builders[c], args.shuffle_sample))
                 total += datasets[-1].num_samples
                 corpus_weights_achieved[c] =  float(datasets[-1].num_samples)/train_num_samples                
                 print_rank_0(f"    {c}: {datasets[-1].num_samples} w={corpus_weights_achieved[c]} (expected: {corpus_weights[c]})")
