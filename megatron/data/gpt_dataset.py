@@ -131,19 +131,35 @@ def build_train_valid_test_datasets(
                 self.build = True
                 return self.dataset
 
-        class BuildConcatDataset(torch.utils.data.Dataset):
+        class BuildCorpusDataset(torch.utils.data.Dataset):
             @dlp.log
-            def __init__(self, dataset_builders, shuffle=False):
+            def __init__(self, dataset_builders):
                 self.dataset_builders = dataset_builders
                 self.num_datasets = len(dataset_builders)
                 self.num_samples = np.sum([d.num_samples for d in dataset_builders])
                 self.indices = np.zeros((self.num_samples, 2), dtype=np.uint64)
-                self.desc = "ConcatDataset:"
+                self.desc = "CorpusDataset:"
                 # m = 0
                 num_samples_list = np.array([d.num_samples for d in dataset_builders])
                 self.num_samples = np.sum(num_samples_list)
+                args = get_args()
 
-                def _build_indices():
+                @dlp.log
+                def _build_indices_blended():
+                    start_time = time.time()
+                    dataset_index = np.zeros(self.num_samples, dtype=np.int64)
+                    dataset_sample_index = np.zeros(self.num_samples, dtype=np.int64)
+                    weights = num_samples_list / self.num_samples
+                    helpers.build_blending_indices(
+                        dataset_index, dataset_sample_index,
+                        weights, self.num_datasets, self.num_samples,
+                        torch.distributed.get_rank() == 0)
+                    log.debug('> elapsed time for building blendable dataset indices for corpus {self.dataset_builders[0].corpus}: '
+                             '{:.2f} (sec)'.format(time.time() - start_time))
+                    return dataset_index, dataset_sample_index
+
+
+                def _build_indices_concat():
                     start_time = time.time()
                     dataset_index = np.zeros(self.num_samples, dtype=np.int64)
                     dataset_sample_index = np.zeros(self.num_samples, dtype=np.int64)
@@ -159,11 +175,15 @@ def build_train_valid_test_datasets(
                         "{:.2f} (sec)".format(time.time() - start_time)
                     )
                     return dataset_index, dataset_sample_index
-
-                self.dataset_index, self.dataset_sample_index = _build_indices()
+                
+                if args.blend_sample_in_corpus:
+                    self.dataset_index, self.dataset_sample_index = _build_indices_blended()                    
+                else:
+                    self.dataset_index, self.dataset_sample_index = _build_indices_concat()
+                    
                 np_rng = np.random.RandomState(seed=dataset_builders[0].seed)
                 self.shuffle_index = np.arange(self.num_samples)
-                if shuffle:
+                if args.shuffle_sample_in_corpus:
                     np_rng.shuffle(self.shuffle_index)
                 for i in range(self.num_datasets):
                     self.desc += dataset_builders[i].prefix + ","
@@ -243,7 +263,7 @@ def build_train_valid_test_datasets(
             log.debug(" > number of samples for each corpus ")
             corpus_weights_achieved = {}
             for c in corpus_list:
-                datasets.append(BuildConcatDataset(corpus_builders[c], args.shuffle_sample))
+                datasets.append(BuildCorpusDataset(corpus_builders[c]))
                 total += datasets[-1].num_samples
                 corpus_weights_achieved[c] = (
                     float(datasets[-1].num_samples) / train_num_samples
