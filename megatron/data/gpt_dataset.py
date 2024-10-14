@@ -133,7 +133,7 @@ def build_train_valid_test_datasets(
 
         class BuildConcatDataset(torch.utils.data.Dataset):
             @dlp.log
-            def __init__(self, dataset_builders):
+            def __init__(self, dataset_builders, shuffle=False):
                 self.dataset_builders = dataset_builders
                 self.num_datasets = len(dataset_builders)
                 self.num_samples = np.sum([d.num_samples for d in dataset_builders])
@@ -163,7 +163,8 @@ def build_train_valid_test_datasets(
                 self.dataset_index, self.dataset_sample_index = _build_indices()
                 np_rng = np.random.RandomState(seed=dataset_builders[0].seed)
                 self.shuffle_index = np.arange(self.num_samples)
-                np_rng.shuffle(self.shuffle_index)
+                if shuffle:
+                    np_rng.shuffle(self.shuffle_index)
                 for i in range(self.num_datasets):
                     self.desc += dataset_builders[i].prefix + ","
 
@@ -196,7 +197,7 @@ def build_train_valid_test_datasets(
         valid_datasets = []
         test_datasets = []
         # Build individual datasets.
-
+        args = get_args()
         @dlp.log
         def build_corpus_datasets(dataset_type="train"):
             start_time = time.time()
@@ -242,7 +243,7 @@ def build_train_valid_test_datasets(
             log.debug(" > number of samples for each corpus ")
             corpus_weights_achieved = {}
             for c in corpus_list:
-                datasets.append(BuildConcatDataset(corpus_builders[c]))
+                datasets.append(BuildConcatDataset(corpus_builders[c], args.shuffle_sample))
                 total += datasets[-1].num_samples
                 corpus_weights_achieved[c] = (
                     float(datasets[-1].num_samples) / train_num_samples
