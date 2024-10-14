@@ -20,7 +20,6 @@
 #    command for launching across all GPUs in our active PBS job.
 ###############################################################################
 
-
 ##################
 # helpers_main
 #
@@ -75,7 +74,7 @@ helpers_main() {
 #
 #    - Clone + Install [`saforem2/ezpz`](https://github.com/saforem2/ezpz)
 #       - Source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
-#           - This provides `{ezpz_setup_python, ezpz_setup_alcf}` (called below)
+#           - This provides `{ezpz_setup_python, ezpz_setup_job}` (called below)
 #
 #    - Set runtime options
 #
@@ -113,22 +112,23 @@ setup() {
     #     - NGPU_PER_HOST (by magic)
     #     - NGPUS (= NHOSTS * NGPU_PER_HOST)
     # 4. Use these (^) to build our launch command
-    ezpz_setup "$@" || exit
+    ezpz_setup || exit
     ##########################################################################
     install_dependencies
     # Set command line arguments to pass to `"${EXEC}"`
-    setParams "$@" || exit
+    setParams || exit
     # Create `deepspeed_config.json` from runtime params from ^
     buildDSconfig || exit
     # Specify output directory for {logs, checkpoints, etc.}
+    setup_checkpoint || exit
     setOutput || exit
     # Specify additional `deepspeed` arguments (dependent on _newly created_ variables)
     set_args || exit
     # Ensure executable exists in expected path
     check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
-    dfl="${DATA_FILE_LIST:-}"
+    dfl="${DATA_FILE_LIST:-"${PBS_O_WORKDIR}/ALCF/data-lists/$(get_machine_name)/dolma.txt"}"
     # Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
-    tok="${TOKENIZER_TYPE:-Llama2}"
+    tok="${TOKENIZER_TYPE:-Llama2Tokenizer}"
     setup_tokenizer_and_data "${tok}" "${dfl}" || exit
     make_data || exit
     # Print job info
@@ -138,8 +138,9 @@ setup() {
     # Check that were not already running, if so, exit.
     check_and_kill_if_running || exit
     # Setup run command to be executed
-    setup_run_cmd || exit
+    setup_run_cmd "$@" || exit
 }
+
 
 #####################################################
 # setup_run_cmd
@@ -147,11 +148,18 @@ setup() {
 # Build run command to be executed.
 #####################################################
 setup_run_cmd() {
+    ##############################
+    # take in additional arguments
+    # and append them directly to
+    # the end of the `run_cmd`
+    # custom_args="$@"
+    custom_args=("$@")
+    ##############################
     #### Make it easy to track experiments by date ###################
     year="$(date "+%Y")"
     month="$(date "+%m")"
     day="$(date "+%Y-%m-%d")"
-    today="$(date "+%Y-%m-%d")"  # kept for backwards compatibility
+    today="$(date "+%Y-%m-%d")" # kept for backwards compatibility
     started_at="$(date "+%Y-%m-%d-%H%M%S")"
     export YEAR="${year}"
     export MONTH="${month}"
@@ -163,74 +171,122 @@ setup_run_cmd() {
     # `export LAUNCH_WITH=deepspeeed && bash train_llama_alcf.sh`
     ##################################################################
     setupLauncher "${LAUNCH_WITH:-MPICH}" || exit
-    TBDIR="${CKPT_DIR}/tensorboard"
-    mkdir -p "${TBDIR}"
     export data_cache_path="${CKPT_DIR}/${DATA_CACHE_PATH}" && mkdir -p "${data_cache_path}"
     printf "\n"
     echo "Using data_cache_path: ${data_cache_path}"
-    export DEFAULTS="\
-        --split 100,0,0 \
-        --log-interval 1 \
-        --no-bias-gelu-fusion \
-        --no-bias-dropout-fusion \
-        --no-masked-softmax-fusion \
-        --no-gradient-accumulation-fusion \
-        --accumulate-allreduce-grads-in-fp32 \
-        --use-checkpoint-opt_param-scheduler \
-        --log-timers-to-tensorboard \
-        --log-optimizer-states-to-tensorboard"
-    if [[ "${SP}" -ge 2 ]]; then
-        export DEFAULTS="${DEFAULTS} --ds-sequence-parallel-size ${SP} --force-ds-sequence-parallel"
+    TRAIN_SPLIT="${TRAIN_SPLIT:-100}"
+    VAL_SPLIT="${VAL_SPLIT:-0}"
+    TEST_SPLIT="${TEST_SPLIT:-0}"
+    LOG_INTERVAL="${LOG_INTERVAL:-1}"
+    DEFAULTS=(
+        "--split ${TRAIN_SPLIT},${VAL_SPLIT},${TEST_SPLIT}"
+        "--log-interval ${LOG_INTERVAL}"
+        "--no-bias-gelu-fusion"
+        "--no-bias-dropout-fusion"
+        "--no-masked-softmax-fusion"
+        "--no-gradient-accumulation-fusion"
+        "--accumulate-allreduce-grads-in-fp32"
+    )
+    # export DEFAULTS="\
+    #     --split ${TRAIN_SPLIT},${VAL_SPLIT},${TEST_SPLIT} \
+    #     --log-interval ${LOG_INTERVAL} \
+    #     --no-bias-gelu-fusion \
+    #     --no-bias-dropout-fusion \
+    #     --no-masked-softmax-fusion \
+    #     --no-gradient-accumulation-fusion \
+    #     --accumulate-allreduce-grads-in-fp32"
+    # OVERRIDE_CKPT_OPT_PARAM="${OVERRIDE_CKPT_OPT_PARAM:-}"
+    if [[ -z "${OVERRIDE_CKPT_OPT_PARAM:-}" ]]; then
+        DEFAULTS+=("--use-checkpoint-opt_param-scheduler")
+    fi
+    if [[ "${SP}" -gt 1 ]]; then
+        DEFAULTS+=(
+        "--ds-sequence-parallel-size ${SP}"
+        "--force-ds-sequence-parallel"
+        )
     fi
     ##################################################################
     # WARN: to disable Llama-type architectures, toggle via:
     # `NO_LLAMA=1 bash train_llama_alcf.sh`
     ##################################################################
-    if [[ -z "${NO_LLAMA:-}" ]]; then
-        llama_flags="${LLAMA_ARGS}\
-            --num-key-value-heads ${NUM_KV_HEAD} \
-            --ffn-hidden-size ${FFN_HIDDEN_SIZE} \
-            "
+    LLAMA_ARGS=""
+    if [[ "${SP}" == 1 ]]; then
+        export LLAMA_ARGS="${LLAMA_ARGS} "
     else
-        echo "!! Running in NO_LLAMA MODE !!"
-        llama_flags=""
+        export LLAMA_ARGS=""
+        echo "NOT USING ROTARY EMBEDDINGS! LLAMA_ARGS=${LLAMA_ARGS}"
     fi
-    export run_cmd="
-        ${LAUNCHER} \
-        --${DTYPE} \
-        ${DEFAULTS} \
-        --optimizer ${OPT} \
-        --adam-beta1=${ADAM_BETA1} \
-        --adam-beta2=${ADAM_BETA2} \
-        --adam-eps=${ADAM_EPS} \
-        --weight-decay=${WEIGHT_DECAY} \
-        --save ${CKPT_DIR} \
-        --load ${CKPT_DIR} \
-        --seq-length ${SEQ} \
-        --num-layers ${NLAYERS} \
-        --hidden-size ${HIDDEN} \
-        --tensorboard-dir ${TBDIR} \
-        --train-iters ${TRAIN_ITERS} \
-        --eval-iters ${EVAL_ITERS} \
-        --distributed-backend ${BE} \
-        --num-attention-heads ${HEADS} \
-        --save-interval ${SAVE_INTERVAL} \
-        --eval-interval ${EVAL_INTERVAL} \
-        --max-position-embeddings ${SEQ} \
-        --micro-batch-size ${MICRO_BATCH} \
-        --tensor-model-parallel-size ${TP} \
-        --global-batch-size ${GLOBAL_BATCH} \
-        --pipeline-model-parallel-size ${PP} \
-        --data-cache-path ${data_cache_path} \
-        ${DATA_FLAGS} \
-        ${LR_ARGS} \
-        ${llama_flags} \
-        ${FLASH_ARG} \
-        ${TIMING_STR} \
-        ${TOKENIZER_FLAGS} \
-        ${ds_args} \
-        ${gpt_args[*]}
-        "
+    if [[ -z "${NO_LLAMA:-}" ]]; then
+        llama_flags=(
+			"--swiglu"
+            "--hidden-dropout 0"
+            "--attention-dropout 0"
+			"--normalization rmsnorm"
+			"--disable-bias-linear"
+            "--no-query-key-layer-scaling"
+			"--use-rotary-position-embeddings"
+			"--untie-embeddings-and-output-weights"
+            "--num-key-value-heads ${NUM_KV_HEAD}"
+            "--ffn-hidden-size ${FFN_HIDDEN_SIZE}"
+        )
+    fi
+
+    TENSORBARD_ARGS=()
+    if [[ -z "${USE_TENSORBARD:-}" ]]; then
+        TBDIR="${CKPT_DIR}/tensorboard"
+        mkdir -p "${TBDIR}"
+        # --log-timers-to-tensorboard \
+        # --log-optimizer-states-to-tensorboard"
+        # --tensorboard-dir ${TBDIR} \
+        TENSORBARD_ARGS+=(
+            "--log-timers-to-tensorboard"
+            "--log-optimizer-states-to-tensorboard"
+            "--tensorboard-dir ${TBDIR}"
+        )
+    fi
+    dfl_fallback="${DATA_FILE_LIST:-${PBS_O_WORKDIR}/ALCF/data-lists/$(get_machine_name)/dolma.txt}"
+    export ADAM_BETA1="${ADAM_BETA1:-0.9}"
+    export ADAM_BETA2="${ADAM_BETA2:-0.95}"
+    export ADAM_EPS="${ADAM_EPS:-0.00001}" # 1 * 10^{-5}
+    export run_cmd=(
+        "${LAUNCHER}"
+        "--${DTYPE}"
+        "${DEFAULTS[@]}"
+        "--optimizer ${OPT}"
+        "--save ${CKPT_DIR}"
+        "--load ${CKPT_DIR}"
+        "--seq-length ${SEQ}"
+        "--num-layers ${NLAYERS}"
+        "--hidden-size ${HIDDEN}"
+        "--train-iters ${TRAIN_ITERS}"
+        "--eval-iters ${EVAL_ITERS}"
+        "--distributed-backend ${BE}"
+        "--adam-beta1 ${ADAM_BETA1:-0.9}"
+        "--adam-beta2 ${ADAM_BETA2:-0.95}"
+        "--adam-eps ${ADAM_EPS:-0.00001}"
+        "--clip-grad ${CLIP_GRAD:-1.0}"
+        "--weight-decay ${WEIGHT_DECAY:-0.1}"
+        "--num-attention-heads ${HEADS}"
+        "--save-interval ${SAVE_INTERVAL}"
+        "--eval-interval ${EVAL_INTERVAL}"
+        "--max-position-embeddings ${SEQ}"
+        "--micro-batch-size ${MICRO_BATCH}"
+        "--tensor-model-parallel-size ${TP}"
+        "--global-batch-size ${GLOBAL_BATCH}"
+        "--pipeline-model-parallel-size ${PP}"
+        "--data-cache-path ${data_cache_path}"
+        "--data-file-list ${DATA_FILE_LIST:-${dfl_fallback}}"
+        "${TENSORBARD_ARGS[@]}"
+        "${DATA_FLAGS}"
+        "${LR_ARGS}"
+        "${llama_flags[@]}"
+        "${FLASH_ARG}"
+        "${TIMING_STR}"
+        "${TOKENIZER_FLAGS}"
+        "${ds_args[@]}"
+        "${gpt_args[@]}"
+        "${custom_args[@]}"
+    )
 }
 
 save_dotenv() {
@@ -243,7 +299,7 @@ save_dotenv() {
         module list
         dotenv_file="${outdir}/.env"
         echo "Saving environment to ${dotenv_file}"
-        printenv | grep -v "LS_COLORS" > "${dotenv_file}"
+        printenv | grep -v "LS_COLORS" >"${dotenv_file}"
         export DOTENV_FILE="${dotenv_file}"
     fi
 }
@@ -298,28 +354,25 @@ get_machine() {
     printf "Running on: %s\n" "$(printBlue "${MACHINE}")"
 }
 
-
 check_and_kill_if_running() {
     RUNNING_PIDS=$(lsof -i:29500 -Fp | head -n 1 | sed 's/^p//')
-    if [[ -n "${RUNNING_PIDS}" ]];
-        then echo "Caught ${RUNNING_PIDS}" && kill "${RUNNING_PIDS}";
+    if [[ -n "${RUNNING_PIDS}" ]]; then
+        echo "Caught ${RUNNING_PIDS}" && kill "${RUNNING_PIDS}"
     else
         echo "Not currently running. Continuing!"
     fi
 }
 
-
 setupSrun() {
     if [[ $(hostname) == login* || $(hostname) == nid* ]]; then
         export NHOSTS="${SLURM_NNODES:-1}"
         export NGPU_PER_HOST="${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L | wc -l)}"
-        export NGPUS="$(( NHOSTS * NGPU_PER_HOST ))"
+        export NGPUS="$((NHOSTS * NGPU_PER_HOST))"
         export SRUN_EXEC="srun --gpus ${NGPUS} --gpus-per-node ${NGPU_PER_HOST} -N ${NHOSTS} -n ${NGPUS} -l -u --verbose"
     else
         echo "Skipping setupSrun() on $(hostname)"
     fi
 }
-
 
 printJobInfo() {
     echo "++++++++++++++++++++++++++++++++++++++++++++++++++"
@@ -377,7 +430,6 @@ setupLauncher() {
     printf " %s" "$(printMagenta "${LAUNCHER}")"
 }
 
-
 set_lr_args() {
     LR_ARGS="--lr ${LR} --lr-decay-style cosine"
     if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
@@ -389,7 +441,6 @@ set_lr_args() {
     echo "LR_ARGS: ${LR_ARGS}"
     export LR_ARGS="${LR_ARGS}"
 }
-
 
 #########################################################################
 # `get_batch_size_on_polaris`: Identify MICRO_BATCH to use on Polaris.
@@ -407,8 +458,8 @@ set_lr_args() {
 #########################################################################
 get_batch_size_on_polaris() {
     if [[ $(hostname) == x3* ]]; then
-        nhosts=$(wc -l < "${HOSTFILE:-${PBS_NODEFILE}}")
-        if [[ "${nhosts}" == 1  || "${nhosts}" == 2 ]]; then
+        nhosts=$(wc -l <"${HOSTFILE:-${PBS_NODEFILE}}")
+        if [[ "${nhosts}" == 1 || "${nhosts}" == 2 ]]; then
             mbs=1
         elif [[ "${nhosts}" -ge 3 && "${nhosts}" -le 7 ]]; then
             mbs=2
@@ -420,9 +471,9 @@ get_batch_size_on_polaris() {
 }
 
 _get_num_hosts_from_hostfile() {
-    if [[ "$#"  == 1 ]]; then
+    if [[ "$#" == 1 ]]; then
         if [[ -f "$1" ]]; then
-            nhosts=$(wc -l < "$1")
+            nhosts=$(wc -l <"$1")
             echo "${nhosts}"
         else
             exit 1
@@ -460,7 +511,7 @@ get_grad_acc_steps_on_aurora() {
         echo "Expected exactly 0 or 1 arguments, received: $#"
         exit 1
     fi
-    nhosts=$(wc -l < "${hf}")
+    nhosts=$(wc -l <"${hf}")
     if [[ 64 -le "${nhosts}" ]]; then
         gas=1
     elif [[ 32 -le "${nhosts}" && "${nhosts}" -lt 64 ]]; then
@@ -473,6 +524,33 @@ get_grad_acc_steps_on_aurora() {
     echo "${gas}"
 }
 
+set_ccl_vars_on_aurora() {
+    export CCL_KVS_MODE=mpi
+    export CCL_CONFIGURATION_PATH=""
+    export CCL_CONFIGURATION=cpu_gpu_dpcpp
+    # export CCL_ROOT=/tmp/oneccl/
+    # export LD_LIBRARY_PATH=${CCL_ROOT}/lib:$LD_LIBRARY_PATH
+    # export CPATH=${CCL_ROOT}/include:$CPATH
+    # export LIBRARY_PATH=${CCL_ROOT}/lib:$LIBRARY_PATH
+    export CCL_KVS_CONNECTION_TIMEOUT=3600
+    export FI_CXI_RX_MATCH_MODE=hybrid
+    export CCL_BCAST=double_tree
+
+    export ZE_ENABLE_PCI_ID_DEVICE_ORDER=1
+    export CCL_PROCESS_LAUNCHER=pmix # Required by Aurora mpich
+    export FI_PROVIDER=cxi           # Required by Aurora mpich
+    export PALS_PMI=pmix             # Required by Aurora mpich
+    export CCL_ATL_TRANSPORT=mpi     # Required by Aurora mpich
+    export TORCH_LLM_ALLREDUCE=1
+    export CCL_SYCL_ESIMD=1
+    export CCL_ALLGATHERV_MEDIUM_SIZE_THRESHOLD=0 # Required by current oneCCL (MLSL-2881)
+    export CCL_ENABLE_SYCL_KERNELS=1
+    export CCL_WORKER_AFFINITY=5,13,21,29,37,45,57,65,73,81,89,97
+    export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=32768
+    export FI_CXI_DEFAULT_CQ_SIZE=1048576
+    export FI_CXI_RX_MATCH_MODE=hybrid
+    export CCL_BCAST=double_tree
+}
 
 ##############################################################################
 # setParams
@@ -487,26 +565,29 @@ get_grad_acc_steps_on_aurora() {
 ##############################################################################
 setParams() {
     FLASH_ARG=""
-    LLAMA_ARGS="--attention-dropout 0 --hidden-dropout 0"
     # ---- [Parallelism Settings] -------------------------------------------+
     # ------ [Aurora] -------||------ [SunSpot] -------------
     # if [[ $(hostname) == x4* || $(hostname) == x1* ]]; then
     mn=$(get_machine_name)
     if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
-        TP=${TP:-1}                      # TP = 1
+        TP=${TP:-1} # TP = 1
         export SAVE_INTERVAL="${SAVE_INTERVAL:-20}"
-        export CCL=${CCL:-ccl}           # CCL
-        export BE="${CCL}"               # COMMUNICATION BACKEND = CCL
-        export DTYPE=${DTYPE:-bf16}      # DTYPE: bf16
+        export CCL=${CCL:-ccl}      # CCL
+        export BE="${CCL}"          # COMMUNICATION BACKEND = CCL
+        export DTYPE=${DTYPE:-bf16} # DTYPE: bf16
         # export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}     # GRADIENT_ACC_STEPS
-        gas=$(get_grad_acc_steps_on_aurora "$@")
+        gas=$(get_grad_acc_steps_on_aurora "${PBS_NODEFILE:-${HOSTFILE:-${hostfile}}}")
         export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-${gas}}"
         # export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-$(get_grad_acc_steps_on_aurora "$@)}"
         echo "[setParams] Using GRAD_ACC_STEPS: ${GRAD_ACC_STEPS}"
-        MICRO_BATCH=${MICRO_BATCH:-4}    # MICRO_BATCH = 4
-        export CCL_PROCESS_LAUNCHER=pmix
-        export CCL_ATL_TRANSPORT=mpi
-        ######################################################################
+        MICRO_BATCH=${MICRO_BATCH:-4} # MICRO_BATCH = 4
+        #### [sam: 08/17/2024] ##########################################
+        # Use best set of CCL env vars from Gordon Bell runs on Aurora
+        set_ccl_vars_on_aurora
+        #################################################################
+        #### [sam: 06/20/2024] ###############################################
+        # export CCL_PROCESS_LAUNCHER=pmix
+        # export CCL_ATL_TRANSPORT=mpi
         # !XXX: USE KEY VALUE STORE FIX ON AURORA [2024-06-20]
         # use_kvs_fix_on_aurora  # <-- why are these different from those in update_ccl_env_vars_aurora ??
         # update_ccl_env_vars_aurora
@@ -528,12 +609,12 @@ setParams() {
     # elif [[ $(hostname) == x3* ]]; then
     elif [[ "${mn}" == "polaris" || "${mn}" == "sirius" ]]; then
         # export LAUNCH_CMD="${LAUNCH_CMD:-deepspeed}"
-        TP=${TP:-1}                                     # TP = 2
-        export NCCL=${NCCL:-nccl}                       # NCCL
-        export BE="${NCCL}"                             # BE = NCCL
+        TP=${TP:-1}               # TP = 2
+        export NCCL=${NCCL:-nccl} # NCCL
+        export BE="${NCCL}"       # BE = NCCL
         # export DTYPE=${DTYPE:-bf16}                   # DTYPE: BF16 ??
-        export DTYPE=${DTYPE:-fp16}                     # DTYPE: FP16
-        export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-8}      # GRADIENT_ACC_STEPS
+        export DTYPE=${DTYPE:-fp16}                # DTYPE: FP16
+        export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-8} # GRADIENT_ACC_STEPS
         # NOTE: MICRO_BATCH is exported below
         # MICRO_BATCH=${MICRO_BATCH:-2}    # MICRO_BATCH = 8
         export MICRO_BATCH="${MICRO_BATCH:-$(get_batch_size_on_polaris)}"
@@ -546,7 +627,7 @@ setParams() {
         source "${WORKING_DIR}/ALCF/aws_ofi_nccl_plugin.sh" || exit
     # +--------[Perlmutter]---------------------------------+
     # elif [[ $(hostname) == login* || $(hostname) == nid* ]]; then
-elif [[ "${mn}" == login* || "${mn}" == nid* ]]; then
+    elif [[ "${mn}" == login* || "${mn}" == nid* ]]; then
         TP="${TP:-2}"
         export NCCL="${NCCL:-nccl}"
         export BE="${NCCL}"
@@ -565,47 +646,47 @@ elif [[ "${mn}" == login* || "${mn}" == nid* ]]; then
     export FLASH_ARG="${FLASH_ARG}"
     export DTYPE="${DTYPE:-bf16}"
     export OPT="${OPT:-adamw}"
-    export ADAM_BETA1="${ADAM_BETA1:-0.9}"
-    export ADAM_BETA2="${ADAM_BETA2:-0.95}"
-    export ADAM_EPS="${ADAM_EPS:-0.00001}"  # 1 * 10^{-5}
+    # export ADAM_BETA1="${ADAM_BETA1:-0.9}"
+    # export ADAM_BETA2="${ADAM_BETA2:-0.95}"
+    # export ADAM_EPS="${ADAM_EPS:-0.00001}" # 1 * 10^{-5}
     export WEIGHT_DECAY="${WEIGHT_DECAY:-0.1}"
     export HOSTFILE="${HOSTFILE:-${PBS_NODEFILE}}"
-    NHOSTS=$(wc -l < "${HOSTFILE}")
+    NHOSTS=$(wc -l <"${HOSTFILE}")
     if [[ -z "${NGPU_PER_HOST:-}" ]]; then
         NGPU_PER_HOST=$(python3 -c 'import ezpz as ez; print(ez.get_gpus_per_node())')
     fi
     export NGPU_PER_HOST="${NGPU_PER_HOST}"
-    export WORLD_SIZE="${WORLD_SIZE:-$(( NHOSTS * NGPU_PER_HOST ))}"
+    export WORLD_SIZE="${WORLD_SIZE:-$((NHOSTS * NGPU_PER_HOST))}"
     # +---[Llama2 7B Config]--------------------------------------------------+
     # export MODEL_KEY="Llama-7B"
-    export HEADS=${HEADS:-${NHEADS:-32}}                # NUMBER OF ATEN HEADS
-    export NLAYERS=${NLAYERS:-${NUM_LAYERS:-32}}        # NUMBER OF LAYERS
-    export HIDDEN=${HIDDEN:-4096}                       # HIDDEN SIZE
-    export NUM_KV_HEAD=${NUM_KV_HEAD:-8}                # GROUP ATTENTION
-    export FFN_HIDDEN_SIZE=${FFN_HIDDEN_SIZE:-11008}    # FFN HIDDEN SIZE
+    export HEADS=${HEADS:-${NHEADS:-32}}             # NUMBER OF ATEN HEADS
+    export NLAYERS=${NLAYERS:-${NUM_LAYERS:-32}}     # NUMBER OF LAYERS
+    export HIDDEN=${HIDDEN:-4096}                    # HIDDEN SIZE
+    export NUM_KV_HEAD=${NUM_KV_HEAD:-8}             # GROUP ATTENTION
+    export FFN_HIDDEN_SIZE=${FFN_HIDDEN_SIZE:-11008} # FFN HIDDEN SIZE
     # +---[Run Settings]------------------------------------------------------+
-    export SEQ=${SEQ:-4096}                             # SEQ_LEN: 4096
-    export ZERO_STAGE=${ZERO_STAGE:-1}                  # ZERO OFFLOADING STAGE
-    export MICRO_BATCH=${MICRO_BATCH:-8}                # MICRO BATCH SIZE
-    export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}          # GRADIENT ACCUMULATION STEPS
-    export EVAL_ITERS="${EVAL_ITERS:-10}"               # NUMBER OF EVAL ITERS TO RUN
-    export EVAL_INTERVAL="${EVAL_INTERVAL:-50000}"      # HOW FREQUENTLY TO RUN EVAL
-    export SAVE_INTERVAL=${SAVE_INTERVAL:-50}           # HOW FREQUENTLY TO SAVE CKPTS
-    export TIMING_LOG_LEVEL="${TIMING_LOG_LEVEL:-1}"    # TIMING VERBOSITY IN LOGS
-    export ACT_CKPT_NUM_LAYERS="${ACT_CKPT_NUM_LAYERS:-1}"                  # NUM LAYERS TO CHECKPOINT ACTIVATIONS
-    export USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING:-1}  # USE ACTIVATION CHECKPOINTING ?
-    export GLOBAL_BATCH_MAX=$(( WORLD_SIZE * MICRO_BATCH * GRAD_ACC_STEPS / TP / PP  / SP ))  # MAX GLOBAL BATCH SIZE
-    export GLOBAL_BATCH="${GLOBAL_BATCH:-${GLOBAL_BATCH_MAX}}"  # WILL USE MAX IF NOT SET IN ENVIRONMENT
+    export SEQ=${SEQ:-4096}                                                               # SEQ_LEN: 4096
+    export ZERO_STAGE=${ZERO_STAGE:-1}                                                    # ZERO OFFLOADING STAGE
+    export MICRO_BATCH=${MICRO_BATCH:-8}                                                  # MICRO BATCH SIZE
+    export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-1}                                            # GRADIENT ACCUMULATION STEPS
+    export EVAL_ITERS="${EVAL_ITERS:-10}"                                                 # NUMBER OF EVAL ITERS TO RUN
+    export EVAL_INTERVAL="${EVAL_INTERVAL:-50000}"                                        # HOW FREQUENTLY TO RUN EVAL
+    export SAVE_INTERVAL=${SAVE_INTERVAL:-50}                                             # HOW FREQUENTLY TO SAVE CKPTS
+    export TIMING_LOG_LEVEL="${TIMING_LOG_LEVEL:-1}"                                      # TIMING VERBOSITY IN LOGS
+    export ACT_CKPT_NUM_LAYERS="${ACT_CKPT_NUM_LAYERS:-1}"                                # NUM LAYERS TO CHECKPOINT ACTIVATIONS
+    export USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING:-1}                # USE ACTIVATION CHECKPOINTING ?
+    export GLOBAL_BATCH_MAX=$((WORLD_SIZE * MICRO_BATCH * GRAD_ACC_STEPS / TP / PP / SP)) # MAX GLOBAL BATCH SIZE
+    export GLOBAL_BATCH="${GLOBAL_BATCH:-${GLOBAL_BATCH_MAX}}"                            # WILL USE MAX IF NOT SET IN ENVIRONMENT
     # export TRAIN_ITER=${TRAIN_ITER:-317892}             # NUMBER OF TRAIN ITERS
     if [[ -z "${TRAIN_ITERS:-${TRAIN_ITER:-}}" ]]; then
         export TRAIN_TOKENS=${TRAIN_TOKENS:-2000000000000}
-        export TRAIN_ITERS=$(( TRAIN_TOKENS / SEQ / GLOBAL_BATCH ))
-        printf "TRAIN_TOKENS=%s (=%sB tokens)\n" "${TRAIN_TOKENS}" "$(( TRAIN_TOKENS / 10**9 ))"
+        export TRAIN_ITERS=$((TRAIN_TOKENS / SEQ / GLOBAL_BATCH))
+        printf "TRAIN_TOKENS=%s (=%sB tokens)\n" "${TRAIN_TOKENS}" "$((TRAIN_TOKENS / 10 ** 9))"
         printf "TRAIN_ITERS=%s\n" "${TRAIN_ITERS}"
     else
         export TRAIN_ITERS="${TRAIN_ITERS:-${TRAIN_ITER:-}}"
     fi
-    export MODEL_TYPE="llama-gb${GLOBAL_BATCH}-seq${SEQ}-pp${PP}-tp${TP}-${NLAYERS}layers-${HEADS}heads-${HIDDEN}hidden"  # STRING FOR IDENTIFYING MODEL
+    export MODEL_TYPE="llama-gb${GLOBAL_BATCH}-seq${SEQ}-pp${PP}-tp${TP}-${NLAYERS}layers-${HEADS}heads-${HIDDEN}hidden" # STRING FOR IDENTIFYING MODEL
     # NOTE: [2024-07-10] #####################################################
     # - [sam]: For whatever reason, it seems that using
     #   sequence-parallelism (SP) > 1 is INCOMPATIBLE with
@@ -613,29 +694,23 @@ elif [[ "${mn}" == login* || "${mn}" == nid* ]]; then
     #
     #   For this reason, we only use the default LLAMA_ARGS when SP=0.
     ##########################################################################
-    if [[ "${SP}" == 1 ]]; then
-        export LLAMA_ARGS="${LLAMA_ARGS} --no-query-key-layer-scaling --use-rotary-position-embeddings --untie-embeddings-and-output-weights --swiglu --normalization rmsnorm --disable-bias-linear"
-    else
-        export LLAMA_ARGS=""
-        echo "NOT USING ROTARY EMBEDDINGS! LLAMA_ARGS=${LLAMA_ARGS}"
-    fi
     # -----[Learning Rate Settings]--------------------------------------------
-    export LR=${LR:-0.0003}                             # LEARNING_RATE
-    export LR_WARMUP_FRAC=${LR_WARMUP_FRAC:-0.05}       # LEARNING RATE WARMUP
+    export LR=${LR:-0.0003}                       # LEARNING_RATE
+    export LR_WARMUP_FRAC=${LR_WARMUP_FRAC:-0.05} # LEARNING RATE WARMUP
     export LR_DECAY_ITERS=${LR_DECAY_ITERS:-}     # LR DECAY ITERS
     set_lr_args
     # -----[Learning Rate Settings]--------------------------------------------
-    if [[ "${TIMING_LOG_LEVEL}" -ge 1 ]]; then
+    # if [[ "${TIMING_LOG_LEVEL:-1}" -gt 1 ]]; then
+    if [[ "${TIMING_LOG_LEVEL:-1}" -gt 1 ]]; then
         TIMING_STR="\
-            --timing-log-level ${TIMING_LOG_LEVEL} \
-            --log-timers-to-tensorboard \
-            --log-optimizer-states-to-tensorboard \
-        "
+            --timing-log-level ${TIMING_LOG_LEVEL}"
+            # --log-timers-to-tensorboard \
+            # --log-optimizer-states-to-tensorboard \
+        # "
     else
         TIMING_STR=""
     fi
 }
-
 
 ##############################################
 # set_args
@@ -645,19 +720,31 @@ elif [[ "${mn}" == login* || "${mn}" == nid* ]]; then
 ##############################################
 set_args() {
     # ---- Set DeepSpeed arguments --------------------------------
-    ds_args=" "
-    ds_args=" --deepspeed ${ds_args}"
-    if [[ $PP == 1 ]]; then
-       ds_args=" --no-pipeline-parallel ${ds_args}" 
+    ds_args=(
+        "--deepspeed"
+    )
+    if [[ "${PP:-1}" == 1 ]]; then
+        ds_args+=("--no-pipeline-parallel")
     fi
-    ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
-    ds_args=" --zero-stage=$ZERO_STAGE ${ds_args}"
+    ds_args+=("--deepspeed_config=${DS_CONFIG}")
+    ds_args+=("--zero-stage=$ZERO_STAGE")
     if [[ "${ZERO_STAGE}" == 3 ]]; then
-        ds_args="--use-mics ${ds_args}"
+        ds_args+=("--use-mics")
     fi
+    # ds_args=" "
+    # ds_args=" --deepspeed ${ds_args}"
+    # if [[ $PP == 1 ]]; then
+    #     ds_args=" --no-pipeline-parallel ${ds_args}"
+    # fi
+    # ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
+    # ds_args="--zero-stage=$ZERO_STAGE ${ds_args}"
+    # if [[ "${ZERO_STAGE}" == 3 ]]; then
+    #     ds_args="--use-mics ${ds_args}"
+    # fi
     if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
         echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
-        ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
+        ds_args+=("--deepspeed-activation-checkpointing")
+        # ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
         # --checkpoint-activations \
         # --deepspeed-activation-checkpointing
     fi
@@ -676,19 +763,17 @@ set_args() {
     export gpt_args
 }
 
-
 make_ds_hostfile() {
     export GPUS_PER_NODE="${GPUS_PER_NODE:-${NGPU_PER_HOST:-${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L | wc -l)}}}"
     # ---- Make MPICH hostfile ----------------
     hf="${HOSTFILE:-${PBS_NODEFILE}}"
     export hostfile_mpich=hostfile_mpich
-    cat "${hf}" > "${hostfile_mpich}"
+    cat "${hf}" >"${hostfile_mpich}"
     # ---- Make DeepSpeed hostfile -------------------
     export hostfile_deepspeed=hostfile_deepspeed
-    cat "${hf}" > "${hostfile_deepspeed}"
+    cat "${hf}" >"${hostfile_deepspeed}"
     sed -e "s/$/ slots=${GPUS_PER_NODE}/" -i "${hostfile_deepspeed}"
 }
-
 
 ###########################################
 # ezpz_setup
@@ -697,12 +782,12 @@ make_ds_hostfile() {
 #    to `"${WORKING_DIR}/deps/ezpz/"`
 #
 # 2. Source [`ezpz/src/ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
-#    - This provides `{ezpz_setup_python, ezpz_setup_alcf}` (called below)
+#    - This provides `{ezpz_setup_python, ezpz_setup_job}` (called below)
 #
 # 3. Call `ezpz_setup_python` (from `ezpz/bin/utils.sh`):
 #    - This will setup conda + virtual enviroment
 #
-# 4. Call `ezpz_setup_alcf` (from `ezpz/bin/utils.sh`):
+# 4. Call `ezpz_setup_job` (from `ezpz/bin/utils.sh`):
 #    - This will parse `$PBS_*` variables and build launch cmd
 #
 # 3. Call `_ezpz_install` (from `Megatron-DeepSpeed/ALCF/helpers.sh`):
@@ -723,7 +808,7 @@ ezpz_setup() {
     # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
     source "${ezdir}/src/ezpz/bin/utils.sh" || exit
     ezpz_setup_python
-    ezpz_setup_alcf "$@"
+    ezpz_setup_job "$@"
     ezpz_pip_loc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
     if [[ -z "${ezpz_pip_loc:-}" ]]; then
         printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
@@ -750,20 +835,19 @@ ezpz_test() {
 # saveDSenv
 #
 # Save important environment variables to .deepspeed_env, which will be
-# forwarded to ALL ranks with DeepSpeed 
+# forwarded to ALL ranks with DeepSpeed
 ############################################################################
 saveDSenv() {
     echo "Saving {PATH, LD_LIBRARY_PATH, htt{p,ps}_proxy, CFLAGS, PYTHONUSERBASE} to .deepspeed_env"
     {
-        echo "PATH=${PATH}" ;
-        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}" ;
-        echo "http_proxy=${http_proxy:-}" ;
-        echo "https_proxy=${https_proxy:-}" ;
-        echo "CFLAGS=${CFLAGS}" ;
-        echo "PYTHONUSERBASE=$PYTHONUSERBASE" ;
-    } > .deepspeed_env
+        echo "PATH=${PATH}"
+        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+        echo "http_proxy=${http_proxy:-}"
+        echo "https_proxy=${https_proxy:-}"
+        echo "CFLAGS=${CFLAGS}"
+        echo "PYTHONUSERBASE=$PYTHONUSERBASE"
+    } >.deepspeed_env
 }
-
 
 get_output_prefix() {
     # ---- Specify output location --------------------------------
@@ -773,7 +857,8 @@ get_output_prefix() {
     pre="${pre}_sp${SP}_pp${PP}_tp${TP}_${DTYPE}_opt${OPT}"
     pre="${pre}_lr${LR}_lwf${LR_WARMUP_FRAC}"
     if [[ -n "${TOKENIZER_TYPE:-}" ]]; then
-        pre="${pre}_tok${TOKENIZER_TYPE}"
+        _tok=$(echo "${TOKENIZER_TYPE}" | sed 's/Tokenizer//g')  # noqa
+        pre="${pre}_tok${_tok}"
     fi
     if [[ -n "${LR_DECAY_ITERS}" ]]; then
         pre="${pre}_ldi${LR_DECAY_ITERS}"
@@ -791,9 +876,21 @@ setOutput() {
     OUTPUT_DIR="logs/${OUTPUT_PREFIX}/$(date +%Y%m%d-%H%M%S)_${WORLD_SIZE}_${HOSTNAME}"
     export OUTPUT_DIR="${OUTPUT_DIR}" && mkdir -p "${OUTPUT_DIR}"
     export OUTPUT_LOG="${OUTPUT_DIR}/output.log"
-    export CKPT_DIR="checkpoints/${OUTPUT_PREFIX}"
-    echo "${OUTPUT_LOG}" >> "logs/latest"
+    echo "${OUTPUT_LOG}" >>"logs/latest"
     printf "\n Please see logs at: %s\n" "$(printGreen "${OUTPUT_DIR}")"
+}
+
+get_checkpoint_dir() {
+    if [[ -n "${CKPT_DIR:-}" ]]; then
+        echo "${CKPT_DIR}"
+    else
+        echo "checkpoints/$(get_output_prefix)"
+    fi
+}
+
+setup_checkpoint() {
+    ckpt_dir=$(get_checkpoint_dir)
+    export CKPT_DIR="${ckpt_dir}"
     printf "Checkpoints will be saved to: %s\n" "$(printYellow "${CKPT_DIR}")"
 }
 
@@ -801,14 +898,13 @@ setOutput() {
 # Build DeepSpeed config and write to .json
 #############################################
 buildDSconfig() {
-    export CPU_OPTIMIZER="${CPU_OPTIMIZER:-0}"
+    # export CPU_OPTIMIZER="${CPU_OPTIMIZER:-0}"
     export DS_CONFIG="${WORKING_DIR}/ds-configs/ds_stage${ZERO_STAGE}_mb${MICRO_BATCH}_gb${GLOBAL_BATCH}_pp${PP}_${DTYPE}.json"
     mkdir -p "$(dirname "${DS_CONFIG}")"
     echo "DS_CONFIG: ${DS_CONFIG}"
     printf "ZS: %s, MB: %s, GB: %s, PP: %s, DTYPE: %s" "${ZERO_STAGE}" "${MICRO_BATCH}" "${GLOBAL_BATCH}" "${PP}" "${DTYPE}"
     generateDSconfig "${DS_CONFIG}"
 }
-
 
 ###############################################################################
 # sumWeights
@@ -844,7 +940,6 @@ make_data() {
     cd "${mdir}" && make && cd -
 }
 
-
 ##############################################################################
 # install_dependencies
 #
@@ -853,7 +948,7 @@ make_data() {
 install_dependencies() {
     depsfile="${WORKING_DIR}/ALCF/requirements/requirements.txt"
     echo "[install_dependencies] Ensuring all dependencies from ${depsfile} installed..."
-    python3 -m pip install -r "${depsfile}" --require-virtualenv 1> /dev/null
+    python3 -m pip install -r "${depsfile}" --require-virtualenv 1>/dev/null
     if [[ ! -x "$(command -v deepspeed)" ]]; then
         mn=$(get_machine_name)
         # if [[ "${mn}" == aurora* || "${mn}" == sunspot* ]]; then
@@ -863,32 +958,6 @@ install_dependencies() {
         printf "[install_dependencies] !! No deepsepeed in %s" "$(which python3)"
     fi
 }
-
-######################################################################
-# install_deepspeed_for_xpu
-#
-# Install microsoft/DeepSpeed on PVC
-#
-# This will:
-# 1. Clone rep
-# 2. Checkout appropriate branch
-# 3. Install into virtual environment
-######################################################################
-install_deepspeed_for_xpu() {
-    # python3 -m pip install "torch==2.1.0.post2" torchvision==0.16.0.post2 torchaudio==2.1.0.post2 intel-extension-for-pytorch==2.1.30.post0 oneccl_bind_pt==2.1.300+xpu --extra-index-url "https://pytorch-extension.intel.com/release-whl/stable/xpu/us/"
-    echo "Building + Installing DeepSpeed on $(hostname)"
-    outdir="${WORKING_DIR}/deps/DeepSpeed"
-    mkdir -p "${outdir}"
-    git clone https://github.com/microsoft/DeepSpeed.git "${outdir}"
-    cd "${outdir}" || exit
-    echo "[install_deepspeed_for_xpu] !! pwd: $(pwd)"
-    python3 -m pip install --require-virtualenv -r requirements/requirements.txt 1> /dev/null
-    python3 -m pip install xgboost "numpy<2" --force-reinstall --upgrade --require-virtualenv 1> /dev/null
-    python setup.py develop 1> /dev/null
-    cd "${WORKING_DIR}"
-    echo "[install_deepspeed_for_xpu] !! pwd: $(pwd)"
-}
-
 
 #################################################
 # Fix for distributed key value store on Aurora
@@ -946,7 +1015,6 @@ check_executable() {
     fi
 }
 
-
 ######################################################################
 # `makeHostiles`:
 #     Detect if `HOSTFILE` set in active environment.
@@ -955,7 +1023,7 @@ check_executable() {
 ######################################################################
 makeHostfiles() {
     if [[ -n "${HOSTFILE}" ]]; then
-        printf "!! USING CUSTOM HOSTFILE FROM: %s"  "${HOSTFILE}"
+        printf "!! USING CUSTOM HOSTFILE FROM: %s" "${HOSTFILE}"
     else
         make_ds_hostfile
     fi
@@ -976,9 +1044,11 @@ setup_tokenizer_and_data() {
     fi
     echo "Setting up tokenizer with ${tok}"
     echo "Using data_file_list: ${dfl}"
+    _data_flags=()
+    _tokenizer_flags=()
     if [[ ${tok} == gpt* || ${tok} == GPT* ]]; then
         export TOKENIZER_TYPE="GPT2"
-        export TOKENIZER_FLAGS="--tokenizer-type GPT2BPETokenizer"
+        _tokenizer_flags+=("--tokenizer-type GPT2BPETokenizer")
         machine=$(get_machine_name)
         if [[ ${machine} == "polaris" ]]; then
             export DATA_PARENT="${DATA_PARENT:-/eagle/argonne_tpc/foremans/projects/argonne-lcf/Megatron-DeepSpeed/dataset}"
@@ -992,18 +1062,25 @@ setup_tokenizer_and_data() {
         export VOCAB_FILE="${DATA_PARENT}/gpt2-vocab.json"
         export MERGE_FILE="${DATA_PARENT}/gpt2-merges.txt"
         export DATA_PATH="${DATA_PARENT}/BookCorpusDataset_text_document"
-        export DATA_FLAGS="--data-path ${DATA_PATH} --vocab-file ${VOCAB_FILE} --merge-file ${MERGE_FILE}"
+        _data_flags+=(
+            "--data-path ${DATA_PATH}"
+            "--vocab-file ${VOCAB_FILE}"
+            "--merge-file ${MERGE_FILE}"
+        )
     else
-        export DATA_FLAGS=""
-        export TOKENIZER_TYPE="Llama2"
-        tm="${WORKING_DIR}/ALCF/tokenizer.model"            # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
-        export TOKENIZER_MODEL="${TOKENIZER_MODEL:-${tm}}"  # USE TOKENIZER_MODEL from env, else fallback from ^
-        export TOKENIZER_FLAGS="--tokenizer-type Llama2Tokenizer --tokenizer-model ${TOKENIZER_MODEL}"
-        if [[ "${TOKENIZER_TYPE}" != "GPT2" ]]; then
-            echo "Using tokenizer: ${TOKENIZER_TYPE}. Setting up data with ${DATA_FILE_LIST-}"
-            setData "${dfl}" || exit
-        fi
+        export TOKENIZER_TYPE="${TOKENIZER_TYPE:-Llama2Tokenizer}"
+        tm="${WORKING_DIR}/ALCF/tokenizer.model"           # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
+        export TOKENIZER_MODEL="${TOKENIZER_MODEL:-${tm}}" # USE TOKENIZER_MODEL from env, else fallback from ^
+        _tokenizer_flags+=(
+            "--tokenizer-type ${TOKENIZER_TYPE}"
+            "--tokenizer-model ${TOKENIZER_MODEL}"
+        )
+        # if [[ "${TOKENIZER_TYPE}" != "GPT2" ]]; then
+        echo "Using tokenizer: ${TOKENIZER_TYPE}. Setting up data with ${DATA_FILE_LIST:-}"
+        setData "${dfl}" || exit
     fi
+    export DATA_FLAGS="${_data_flags[*]}"
+    export TOKENIZER_FLAGS="${_tokenizer_flags[*]}"
     printf "[setData] DATA_FLAGS: %s\n" "$(printGreen "${DATA_FLAGS}")"
     printf "[setData] TOKENIZER_FLAGS: %s\n" "$(printMagenta "${TOKENIZER_FLAGS}")"
 }
@@ -1014,7 +1091,7 @@ setup_tokenizer_and_data() {
 # Ensure `DATA_FILE_LIST` is set,
 # fallback to default values if necessary.
 ###############################################
-setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
+setData() { # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     ####### [Set DATA_FILE_LIST_FALLBACK based on current machine] #############
     mn=$(get_machine_name)
     dfl_fallback="${WORKING_DIR}/ALCF/data-lists/${mn}/dolma.txt"
@@ -1023,7 +1100,7 @@ setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     # use this data file list to call `setData`
     dfl="${1:-${dfl_fallback}}"
     printf "Calling:  setData() with %s\n" "${dfl}"
-    ndocs=$(wc -l < "${dfl}")
+    ndocs=$(wc -l <"${dfl}")
     ws=$(sumWeights "${dfl}")
     dfl_stem=$(echo "${dfl}" | tr "\/" "\t" | awk '{print $NF}' | sed "s/\.txt//g")
     dcp=".cache/${dfl_stem}/index-cache"
@@ -1032,7 +1109,7 @@ setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     export WEIGHT_SUM="${ws}"
     export DFL_STEM="${dfl_stem}"
     export DATA_CACHE_PATH="${dcp}"
-    export DATA_FLAGS="${DATA_FLAGS} --data-file-list ${DATA_FILE_LIST}"  #  --data-cache-path ${DATA_CACHE_PATH}"
+    # export DATA_FLAGS="${DATA_FLAGS} --data-file-list ${DATA_FILE_LIST}"   #  --data-cache-path ${DATA_CACHE_PATH}"
     echo "--------------------"
     echo "Updated environment:"
     printf "DATA_FILE_LIST: %s\n" "${DATA_FILE_LIST}"
@@ -1044,6 +1121,30 @@ setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     echo "--------------------"
 }
 
+generateDSconfig_new() {
+    cat <<EOT > "${CONFIG_JSON}"
+    {
+    "train_batch_size" : $GLOBAL_BATCH,
+    "train_micro_batch_size_per_gpu": $MICRO_BATCH,
+    "steps_per_print": 1,
+
+    "zero_optimization": {
+        "stage": $ZERO_STAGE
+    },
+
+    "bf16": {
+        "enabled": true
+    },
+
+    "data_types": {
+            "grad_accum_dtype": "fp32" 
+    },
+
+    "wall_clock_breakdown" : false
+    }
+EOT
+}
+
 ################################################################################
 # generateDSconfig
 #
@@ -1053,8 +1154,8 @@ setData() {  # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
 ################################################################################
 generateDSconfig() {
     if [ $# -ne 1 ]; then
-      echo "Usage: $0 config_file"
-      exit 1
+        echo "Usage: $0 config_file"
+        exit 1
     fi
     for v in "$GLOBAL_BATCH" "$MICRO_BATCH" "$GRAD_ACC_STEPS" "$ZERO_STAGE" "$PP" "$DTYPE"; do
         if [ -z "$v" ]; then
@@ -1062,16 +1163,6 @@ generateDSconfig() {
             exit 1
         fi
     done
-    # \"optimizer\": {
-    #   \"type\": \"AdamW\",
-    #   \"params\": {
-    #     \"lr\": ${LR},
-    #     \"beta1\": 0.9,
-    #     \"beta2\": 0.95,
-    #     \"eps\": 1e-5,
-    #     \"weight_decay\": 1e-1
-    #   }
-    # },
     # \"scheduler\": {
     #   \"type\": \"WarmupLR\",
     #   \"params\": {
@@ -1086,13 +1177,17 @@ generateDSconfig() {
         \"train_micro_batch_size_per_gpu\": $MICRO_BATCH,
         \"steps_per_print\": 1,
         \"gradient_accumulation_steps\": $GRAD_ACC_STEPS,
+        \"zero_force_ds_cpu_optimizer\": false,
         \"zero_allow_untested_optimizer\": true,
         \"gradient_clipping\": 1.0,
-        \"activation_checkpointing\": {
-          \"partition_activations\": true,
-          \"contiguous_memory_optimization\": true
-        },
         \"wall_clock_breakdown\": false,"
+    if [[ "${USE_ACTIVATION_CHECKPOINTING}" == 1 ]]; then
+        activation_checkpointing="\
+            \"activation_checkpointing\": {
+            \"partition_activations\": true,
+            \"contiguous_memory_optimization\": true
+            },"
+    fi
     flops_profiler="\
         \"flops_profiler\": {
           \"enabled\": true,
@@ -1133,8 +1228,22 @@ generateDSconfig() {
     else
         dtype="\"communication_data_type\": \"fp32\","
     fi
+    if [[ "${OPT:-adamw}" == "ds.adamw" ]]; then
+        optimizer="\
+            \"optimizer\": {
+                \"type\": \"AdamW\",
+                \"params\": {
+                \"lr\": ${LR},
+                \"beta1\": 0.9,
+                \"beta2\": 0.95,
+                \"eps\": 1e-5,
+                \"weight_decay\": 1e-1
+            },"
+    else
+        optimizer=""
+    fi
     if [[ "${ZERO_STAGE}" == 3 ]]; then
-              # \"mics_shard_size\": 2,
+        # \"mics_shard_size\": 2,
         zero="\
             \"zero_optimization\": {
               \"stage\": 3,
@@ -1157,9 +1266,8 @@ generateDSconfig() {
               }
             },"
     # elif [[ $ZERO_STAGE == 2 ]]; then
-    elif [[ "${ZERO_STAGE}" == 2  || "${ZERO_STAGE}" == 1 ]]; then
-        # if [[ -n "${CPU_OPTIMIZER}" ]]; then
-        if [[ "${CPU_OPTIMIZER:-0}" != 0 ]]; then
+    elif [[ "${ZERO_STAGE}" == 2 || "${ZERO_STAGE}" == 1 ]]; then
+        if [[ -z "${CPU_OPTIMIZER:-}" ]]; then
             echo "!!!! CAUGHT CPU_OPTIMIZER !!!!"
             zero="\
                 \"zero_optimization\": {
@@ -1188,18 +1296,18 @@ generateDSconfig() {
         else
             extra="\
                 \"comms_logger\": {
-                \"enabled\": true,
+                \"enabled\": ${COMMS_LOGGER:-false},
                 \"verbose\": false,
-                \"prof_all\": true,
                 \"debug\": false
               },"
         fi
     else
         echo 'Please add the correct config set!!!'
     fi
-cat <<EOT > "$1"
+    cat <<EOT >"$1"
 {
 $common
+$optimizer
 $zero
 $dtype
 $extra
@@ -1243,7 +1351,7 @@ GREEN="\e[1;32m"
 YELLOW="\e[1;33m"
 BLUE="\e[1;34m"
 CYAN="\e[1;35m"
-WHITE="\e[1;36m"
+# WHITE="\e[1;36m"
 
 printBlack() {
     printf "\e[1;30m%s\e[0m\n" "$@"
@@ -1276,6 +1384,73 @@ printCyan() {
 printWhite() {
     printf "\e[1;37m%s\e[0m\n" "$@"
 }
+
+reset_env() {
+    custom_vars=(
+        NO_FLASH_ATTN
+        TP
+        PP
+        SP
+        FLASH_ARG
+        OPT
+        ADAM_BETA1
+        ADAM_BETA2
+        ADAM_EPS
+        WEIGHT_DECAY
+        HEADS
+        NLAYERS
+        HIDDEN
+        NUM_KV_HEAD
+        FFN_HIDDEN_SIZE
+        SEQ
+        ZERO_STAGE
+        MICRO_BATCH
+        EVAL_ITERS
+        EVAL_INTERVAL
+        TIMING_LOG_LEVEL
+        ACT_CKPT_NUM_LAYERS
+        USE_ACTIVATION_CHECKPOINTING
+        GLOBAL_BATCH_MAX
+        GLOBAL_BATCH
+        TRAIN_TOKENS
+        TRAIN_ITERS
+        MODEL_TYPE
+        LLAMA_ARGS
+        LR
+        LR_WARMUP_FRAC
+        LR_DECAY_ITERS
+        LR_ARGS
+        CPU_OPTIMIZER
+        DS_CONFIG
+        OUTPUT_DIR
+        OUTPUT_LOG
+        CKPT_DIR
+        ds_args
+        EXEC
+        EXEC_STEM
+        DATA_FLAGS
+        TOKENIZER_TYPE
+        TOKENIZER_MODEL
+        TOKENIZER_FLAGS
+        DATA_FILE_LIST
+        NUM_DOCS
+        WEIGHT_SUM
+        DFL_STEM
+        DATA_CACHE_PATH
+        DOTENV_FILE
+        YEAR
+        MONTH
+        DAY
+        TODAY
+        STARTED_AT
+        LAUNCHER
+        data_cache_path
+        DEFAULTS
+    )
+    printf "Unsetting custom vars: %s\n" "${custom_vars[*]}"
+    unset "${custom_vars[@]}"
+}
+
 
 ###########################
 # call helpers_main()

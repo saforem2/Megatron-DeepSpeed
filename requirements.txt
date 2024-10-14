@@ -1,3 +1,0 @@
-pydftracer
-wandb
-git+https://github.com/saforem2/ezpz@main
