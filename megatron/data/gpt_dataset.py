@@ -5,6 +5,7 @@
 import hashlib
 import os
 import time
+import logging
 
 import numpy as np
 import torch
@@ -22,6 +23,19 @@ from megatron.data.indexed_dataset import make_dataset as make_indexed_dataset
 
 from megatron.utils import PerfTrace, Profile, get_logger
 from mpi4py import MPI
+
+try:
+    import ezpz as ez
+    RANK = ez.get_rank()
+except Exception:
+    RANK = torch.distributed.get_rank()
+
+# NOTE: [logging]-----------------------------------------------------------
+# - Set logging level to "INFO" on RANK == 0, "CRITICAL" on all other ranks
+log = logging.getLogger(__name__)
+LOG_LEVEL = str(os.environ.get("LOG_LEVEL", "INFO")).upper()
+log.setLevel(LOG_LEVEL) if RANK == 0 else log.setLevel("CRITICAL")
+# --------------------------------------------------------------------------
 
 dlp = Profile("DATASET")
 

@@ -30,6 +30,20 @@ from megatron.utils import Profile, get_logger
 log = get_logger(__name__)
 
 
+try:
+    import ezpz as ez
+    RANK = ez.get_rank()
+except Exception:
+    RANK = torch.distributed.get_rank()
+
+# NOTE: [logging]-----------------------------------------------------------
+# - Set logging level to "INFO" on RANK == 0, "CRITICAL" on all other ranks
+log = logging.getLogger(__name__)
+LOG_LEVEL = str(os.environ.get("LOG_LEVEL", "INFO")).upper()
+log.setLevel(LOG_LEVEL) if RANK == 0 else log.setLevel("CRITICAL")
+# --------------------------------------------------------------------------
+
+
 dlp = Profile("DATASET")
 
 
