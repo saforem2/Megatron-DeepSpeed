@@ -1165,7 +1165,6 @@ generateDSconfig() {
         \"train_batch_size\": $GLOBAL_BATCH,
         \"train_micro_batch_size_per_gpu\": $MICRO_BATCH,
         \"steps_per_print\": 1,
-        \"gradient_clipping\": 1.0,
         \"gradient_accumulation_steps\": $GRAD_ACC_STEPS,
         \"zero_force_ds_cpu_optimizer\": false,
         \"zero_allow_untested_optimizer\": true,
