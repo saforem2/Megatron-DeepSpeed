@@ -16,18 +16,9 @@ from megatron.core import mpu
 from megatron.utils import Profile, PerfTrace
 from mpi4py import MPI
 
-try:
-    import ezpz as ez
-    RANK = ez.get_rank()
-except Exception:
-    RANK = torch.distributed.get_rank()
+from megatron.utils import get_logger
 
-# NOTE: [logging]-----------------------------------------------------------
-# - Set logging level to "INFO" on RANK == 0, "CRITICAL" on all other ranks
-log = logging.getLogger(__name__)
-LOG_LEVEL = str(os.environ.get("LOG_LEVEL", "INFO")).upper()
-log.setLevel(LOG_LEVEL) if RANK == 0 else log.setLevel("CRITICAL")
-# --------------------------------------------------------------------------
+log = get_logger(__name__, rank_zero_only=True)
 
 dlp = Profile("DATASET")
 class BlendableDataset(torch.utils.data.Dataset):
@@ -58,8 +49,10 @@ class BlendableDataset(torch.utils.data.Dataset):
             helpers.build_blending_indices(dataset_index, dataset_sample_index,
                                            weights, num_datasets, self.size,
                                            torch.distributed.get_rank() == 0)
-            log.info('> elapsed time for building blendable dataset indices: '
-                         '{:.2f} (sec)'.format(time.time() - start_time))
+            log.info(
+                "> elapsed time for building blendable dataset indices: "
+                f"{time.perf_counter() - start_time:.2f} (sec)"
+            )
             return dataset_index, dataset_sample_index
 
         desc = "Blendable dataset\n\n"
@@ -83,7 +76,7 @@ class BlendableDataset(torch.utils.data.Dataset):
                       ' dataset, building indices on rank 0 ...', flush=True)
                 dataset_index, dataset_sample_index = _build_indices()
                 try:
-                    log.info(" > saving index map files")
+                    log.debug(" > saving index map files")
                     start_time = time.time()
                     os.makedirs(os.path.dirname(index_path), exist_ok=True)
                     with open(desc_path, 'wt') as fd:
@@ -114,7 +107,7 @@ class BlendableDataset(torch.utils.data.Dataset):
             torch.distributed.barrier(group=mpu.get_data_parallel_group())
             torch.distributed.barrier(group=mpu.get_pipeline_model_parallel_group())
             torch.distributed.barrier(group=mpu.get_data_parallel_group())
-            
+
             start_time = time.time()
             log.info(f'> loading blendable dataset index: {index_path}')
             self.dataset_index = np.load(index_path, allow_pickle=True, mmap_mode='r')
@@ -122,7 +115,7 @@ class BlendableDataset(torch.utils.data.Dataset):
             log.info(f'> loading blendable dataset sample index: {sample_index_path}')
             self.dataset_sample_index = np.load(sample_index_path, allow_pickle=True, mmap_mode='r')
             assert self.dataset_sample_index.size == self.size
-            log.info(f'> finished loading in {time.time() - start_time} seconds')            
+            log.info(f'> finished loading in {time.time() - start_time} seconds')
         else:
             self.dataset_index, self.dataset_sample_index = _build_indices()
 
@@ -148,4 +141,4 @@ class BlendableDataset(torch.utils.data.Dataset):
         return {
             "dataset_idx" : dataset_idx,
             **self.datasets[dataset_idx][sample_idx],
-        }            
+        }
