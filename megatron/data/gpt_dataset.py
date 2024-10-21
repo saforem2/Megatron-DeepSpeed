@@ -154,8 +154,8 @@ def build_train_valid_test_datasets(
                         dataset_index, dataset_sample_index,
                         weights, self.num_datasets, self.num_samples,
                         torch.distributed.get_rank() == 0)
-                    log.debug('> elapsed time for building blendable dataset indices for corpus {self.dataset_builders[0].corpus}: '
-                             '{:.2f} (sec)'.format(time.time() - start_time))
+                    log.debug(f"> elapsed time for building blendable dataset indices for corpus {self.dataset_builders[0].corpus}: "
+                             "{:.2f} (sec)".format(time.time() - start_time))
                     return dataset_index, dataset_sample_index
 
 
