@@ -141,7 +141,6 @@ setup() {
     setup_run_cmd "$@" || exit
 }
 
-
 #####################################################
 # setup_run_cmd
 #
@@ -180,24 +179,24 @@ setup_run_cmd() {
     ##################################################################
     if [[ -z "${NO_LLAMA:-}" ]]; then
         llama_flags=(
-			"--swiglu"
+            "--swiglu"
             "--hidden-dropout 0"
             "--attention-dropout 0"
-			"--normalization rmsnorm"
-			"--disable-bias-linear"
+            "--normalization rmsnorm"
+            "--disable-bias-linear"
             "--no-query-key-layer-scaling"
-			"--use-rotary-position-embeddings"
-			"--untie-embeddings-and-output-weights"
+            "--use-rotary-position-embeddings"
+            "--untie-embeddings-and-output-weights"
             "--num-key-value-heads ${NUM_KV_HEAD}"
             "--ffn-hidden-size ${FFN_HIDDEN_SIZE}"
         )
     fi
     # min_lr=$(python3 -c 'print(f"{2 / (10 ** 5):.8f}")')
     # "--min-lr ${LR:-${min_lr}}"  # 2e-5
+    # "--min-lr ${MIN_LR:-"2e-6"}"  # 2e-5
     lr_flags=(
         "--lr ${LR:-0.0002}"
         "--lr-decay-style ${LR_DECAY_STYLE:-cosine}"
-        "--min-lr ${MIN_LR:-"2e-6"}"  # 2e-5
         "--lr-warmup-fraction ${LR_WARMUP_FRAC:-0.05}"
     )
     if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
@@ -221,8 +220,7 @@ setup_run_cmd() {
         train_args+=("--use-checkpoint-opt_param-scheduler")
     fi
     # "--init-method-std ${INIT_METHOD_STD:-0.0006}"
-    # "--weight-decay ${WEIGHT_DECAY:-0.1}"
-    #     --accumulate-allreduce-grads-in-fp32"
+    # "--shuffle-sample"
     train_args+=(
         "${lr_flags[@]}"
         "${custom_args[@]}"
@@ -235,44 +233,48 @@ setup_run_cmd() {
         "${ds_args[@]}"
         "${gpt_args[@]}"
         "--${DTYPE}"
-        "--shuffle-sample"
+        "--shuffle-sample-in-corpus"
+        "--blend-sample-in-corpus"
+        "--accumulate-allreduce-grads-in-fp32"
         "--no-bias-gelu-fusion"
         "--no-bias-dropout-fusion"
         "--no-masked-softmax-fusion"
         "--no-gradient-accumulation-fusion"
-        "--optimizer ${OPT}"
-        "--tensor-model-parallel-size ${TP}"
-        "--pipeline-model-parallel-size ${PP}"
-        "--max-position-embeddings ${SEQ}"
-        "--micro-batch-size ${MICRO_BATCH}"
-        "--ds-sequence-parallel-size ${SP}"
-        "--global-batch-size ${GLOBAL_BATCH}"
-        "--split ${TRAIN_SPLIT:-990},${VAL_SPLIT:-10},${TEST_SPLIT:-0}"
-        "--timing-log-level ${TIMING_LOG_LEVEL:-1}"
-        "--eval-interval ${EVAL_INTERVAL:-100}"
-        "--eval-iters ${EVAL_ITERS:-20}"
-        "--save-interval ${SAVE_INTERVAL:-50}"
-        "--log-interval ${LOG_INTERVAL:-1}"
-        "--save ${SAVE:-${CKPT_DIR}}"
-        "--load ${LOAD:-${CKPT_DIR}}"
-        "--seq-length ${SEQ}"
-        "--num-layers ${NLAYERS}"
-        "--hidden-size ${HIDDEN}"
-        "--train-iters ${TRAIN_ITERS}"
-        "--distributed-backend ${BE}"
-        "--adam-beta1 ${ADAM_BETA1:-0.9}"
-        "--adam-beta2 ${ADAM_BETA2:-0.95}"
-        "--adam-eps ${ADAM_EPS:-0.00001}"
-        "--clip-grad ${CLIP_GRAD:-1.0}"
-        "--num-attention-heads ${HEADS}"
-        "--data-cache-path ${data_cache_path}"
-        "--data-file-list ${DATA_FILE_LIST:-${dfl_fallback}}"
+        "--optimizer=${OPT}"
+        "--tensor-model-parallel-size=${TP}"
+        "--pipeline-model-parallel-size=${PP}"
+        "--max-position-embeddings=${SEQ}"
+        "--micro-batch-size=${MICRO_BATCH}"
+        "--ds-sequence-parallel-size=${SP}"
+        "--global-batch-size=${GLOBAL_BATCH}"
+        "--split=${TRAIN_SPLIT:-990},${VAL_SPLIT:-10},${TEST_SPLIT:-0}"
+        "--timing-log-level=${TIMING_LOG_LEVEL:-1}"
+        "--eval-interval=${EVAL_INTERVAL:-100}"
+        "--eval-iters=${EVAL_ITERS:-20}"
+        "--save-interval=${SAVE_INTERVAL:-50}"
+        "--log-interval=${LOG_INTERVAL:-1}"
+        "--save=${SAVE:-${CKPT_DIR}}"
+        "--load=${LOAD:-${CKPT_DIR}}"
+        "--seq-length=${SEQ}"
+        "--num-layers=${NLAYERS}"
+        "--hidden-size=${HIDDEN}"
+        "--train-iters=${TRAIN_ITERS}"
+        "--distributed-backend=${BE}"
+        "--weight-decay=${WEIGHT_DECAY:-0.1}"
+        "--adam-beta1=${ADAM_BETA1:-0.9}"
+        "--adam-beta2=${ADAM_BETA2:-0.95}"
+        "--adam-eps=${ADAM_EPS:-0.00001}"
+        "--clip-grad=${CLIP_GRAD:-1.0}"
+        "--num-attention-heads=${HEADS}"
+        "--data-cache-path=${data_cache_path}"
+        "--data-file-list=${DATA_FILE_LIST:-${dfl_fallback}}"
     )
+    # "--adam-eps ${ADAM_EPS:-0.00001}"
     cache_dir="${PBS_O_WORKDIR}/.cache/"
     mkdir -p "${cache_dir}"
     targs_cache="${cache_dir}/train_args.txt"
-    for arg in "${train_args[@]}"; do echo "${arg}" >> "${targs_cache}" ; done
-    export TRAIN_ARGS=("$(printf '%s\n' "${train_args[@]}"|sort)")
+    for arg in "${train_args[@]}"; do echo "${arg}" >>"${targs_cache}"; done
+    export TRAIN_ARGS=("$(printf '%s\n' "${train_args[@]}" | sort)")
     printf "Training Arguments: %s\n" "${TRAIN_ARGS[@]}"
     export run_cmd=("${LAUNCHER}" "${train_args[@]}")
 }
@@ -506,7 +508,7 @@ get_grad_acc_steps_on_aurora() {
         exit 1
     fi
     nhosts=$(wc -l <"${hf}")
-    if [[ "${nhosts}" -gt 256 ]]; then
+    if [[ "${nhosts}" -ge 256 ]]; then
         gas=1
     elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then
         gas=2
@@ -567,7 +569,7 @@ setParams() {
     mn=$(get_machine_name)
     if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
         TP=${TP:-1} # TP = 1
-        export SAVE_INTERVAL="${SAVE_INTERVAL:-20}"
+        export SAVE_INTERVAL="${SAVE_INTERVAL:-50}"
         export CCL=${CCL:-ccl}      # CCL
         export BE="${CCL}"          # COMMUNICATION BACKEND = CCL
         export DTYPE=${DTYPE:-bf16} # DTYPE: bf16
@@ -845,7 +847,7 @@ get_output_prefix() {
     pre="${pre}_sp${SP}_pp${PP}_tp${TP}_${DTYPE}_opt${OPT}"
     pre="${pre}_lr${LR}_lwf${LR_WARMUP_FRAC}"
     if [[ -n "${TOKENIZER_TYPE:-}" ]]; then
-        _tok=$(echo "${TOKENIZER_TYPE}" | sed 's/Tokenizer//g')  # noqa
+        _tok=$(echo "${TOKENIZER_TYPE}" | sed 's/Tokenizer//g') # noqa
         pre="${pre}_tok${_tok}"
     fi
     if [[ -n "${LR_DECAY_ITERS}" ]]; then
@@ -1111,7 +1113,7 @@ setData() { # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
 }
 
 generateDSconfig_new() {
-    cat <<EOT > "${CONFIG_JSON}"
+    cat <<EOT >"${CONFIG_JSON}"
     {
     "train_batch_size" : $GLOBAL_BATCH,
     "train_micro_batch_size_per_gpu": $MICRO_BATCH,
@@ -1164,11 +1166,11 @@ generateDSconfig() {
     common="\
         \"train_batch_size\": $GLOBAL_BATCH,
         \"train_micro_batch_size_per_gpu\": $MICRO_BATCH,
+        \"gradient_clipping\": 1.0,
         \"steps_per_print\": 1,
         \"gradient_accumulation_steps\": $GRAD_ACC_STEPS,
         \"zero_force_ds_cpu_optimizer\": false,
         \"zero_allow_untested_optimizer\": true,
-        \"gradient_clipping\": 1.0,
         \"wall_clock_breakdown\": false,"
     # if [[ "${USE_ACTIVATION_CHECKPOINTING}" == 1 ]]; then
     #     activation_checkpointing="\
@@ -1178,8 +1180,8 @@ generateDSconfig() {
     #         },"
     # fi
     if [[ $DTYPE == "bf16" ]]; then
+        # \"communication_data_type\": \"bf16\",
         dtype="\
-            \"communication_data_type\": \"bf16\",
             \"fp16\": {
               \"enabled\": false,
               \"loss_scale\": 0,
@@ -1214,9 +1216,9 @@ generateDSconfig() {
                 \"type\": \"AdamW\",
                 \"params\": {
                 \"lr\": ${LR},
-                \"beta1\": 0.9,
-                \"beta2\": 0.95,
-                \"eps\": 1e-5,
+                \"beta1\": ${ADAM_BETA1},
+                \"beta2\": ${ADAM_BETA2},
+                \"eps\": ${ADAM_EPS},
                 \"weight_decay\": 1e-1
             },
         },"
