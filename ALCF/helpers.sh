@@ -508,7 +508,7 @@ get_grad_acc_steps_on_aurora() {
         exit 1
     fi
     nhosts=$(wc -l <"${hf}")
-    if [[ "${nhosts}" -ge 256 ]]; then
+    if [[ "${nhosts}" -gt 256 ]]; then
         gas=1
     elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then
         gas=2
