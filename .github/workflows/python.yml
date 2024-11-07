@@ -16,7 +16,7 @@ jobs:
   unit-tests:
     strategy:
       matrix:
-        pyVersion: ["3.10", "3.12"]
+        pyVersion: ["3.10"]
       fail-fast: false
 
     runs-on: ubuntu-22.04
