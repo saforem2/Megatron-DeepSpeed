@@ -578,7 +578,12 @@ setParams() {
         export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-${gas}}"
         # export GRAD_ACC_STEPS="${GRAD_ACC_STEPS:-$(get_grad_acc_steps_on_aurora "$@)}"
         echo "[setParams] Using GRAD_ACC_STEPS: ${GRAD_ACC_STEPS}"
-        MICRO_BATCH=${MICRO_BATCH:-1} # MICRO_BATCH = 4
+        MICRO_BATCH=${MICRO_BATCH:-1}
+        if [[ -n "${NO_FLASH_ATTN-}" ]]; then
+            echo "Not using flash-attn!!"
+        else
+            FLASH_ARG="--use-flash-attn-builder"
+        fi
         #### [sam: 08/17/2024] ##########################################
         # Use best set of CCL env vars from Gordon Bell runs on Aurora
         set_ccl_vars_on_aurora
@@ -590,18 +595,18 @@ setParams() {
         # use_kvs_fix_on_aurora  # <-- why are these different from those in update_ccl_env_vars_aurora ??
         # update_ccl_env_vars_aurora
         ######################################################################
-        if [[ -z "${USE_FLASH_ATTN:-}" ]]; then
-            # NOTE: if NO_FLASH_ATTN is NON-empty; then NO FLASH ATTN !!
-            export NO_FLASH_ATTN=1 # disabled on [2024-06-20] waiting on fix...
-            if [[ -n "${NO_FLASH_ATTN-}" ]]; then
-                echo "Not using flash-attn!!"
-            else
-                FLASH_ARG="--use-flash-attn-builder"
-            fi
-        else
-            echo "Using flash-attn !!"
-            FLASH_ARG="--use-flash-attn-builder"
-        fi
+        # if [[ -z "${USE_FLASH_ATTN:-}" ]]; then
+        #     # NOTE: if NO_FLASH_ATTN is NON-empty; then NO FLASH ATTN !!
+        #     export NO_FLASH_ATTN=1 # disabled on [2024-06-20] waiting on fix...
+        #     if [[ -n "${NO_FLASH_ATTN-}" ]]; then
+        #         echo "Not using flash-attn!!"
+        #     else
+        #         FLASH_ARG="--use-flash-attn-builder"
+        #     fi
+        # else
+        #     echo "Using flash-attn !!"
+        #     FLASH_ARG="--use-flash-attn-builder"
+        # fi
     # [Polaris]
     elif [[ "${mn}" == "polaris" || "${mn}" == "sirius" ]]; then
         # export LAUNCH_CMD="${LAUNCH_CMD:-deepspeed}"
