@@ -522,9 +522,9 @@ get_grad_acc_steps_on_aurora() {
         gas=1
     elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then
         gas=2
-    elif [[ 32 -le "${nhosts}" && "${nhosts}" -lt 128 ]]; then
+    elif [[ 32 -lt "${nhosts}" && "${nhosts}" -lt 129 ]]; then
         gas=4
-    elif [[ 16 -le "${nhosts}" && "${nhosts}" -lt 32 ]]; then
+    elif [[ 16 -le "${nhosts}" && "${nhosts}" -le 32 ]]; then
         gas=8
     else
         gas=16
