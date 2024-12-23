@@ -922,8 +922,8 @@ buildDSconfig() {
     # export CPU_OPTIMIZER="${CPU_OPTIMIZER:-0}"
     export DS_CONFIG="${WORKING_DIR}/ds-configs/ds_stage${ZERO_STAGE}_mb${MICRO_BATCH}_gb${GLOBAL_BATCH}_pp${PP}_${DTYPE}.json"
     mkdir -p "$(dirname "${DS_CONFIG}")"
-    echo "DS_CONFIG: ${DS_CONFIG}"
-    printf "ZS: %s, MB: %s, GB: %s, PP: %s, DTYPE: %s" "${ZERO_STAGE}" "${MICRO_BATCH}" "${GLOBAL_BATCH}" "${PP}" "${DTYPE}"
+    printf "DS_CONFIG: %s\n" "${DS_CONFIG}"
+    printf "ZS=%s, MB=%s, GB=%s, PP=%s, DTYPE=%s\n" "${ZERO_STAGE}" "${MICRO_BATCH}" "${GLOBAL_BATCH}" "${PP}" "${DTYPE}"
     generateDSconfig "${DS_CONFIG}"
     cat "${DS_CONFIG}" | jq .
 }
