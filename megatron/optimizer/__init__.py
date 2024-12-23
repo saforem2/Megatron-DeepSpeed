@@ -127,6 +127,8 @@ def get_megatron_optimizer(
             param_groups
         )
 
+    optimizer = None
+    # ---- CPU Optimizer --------------------------------------
     if args.cpu_optimizer:
         assert args.optimizer == 'adam', 'CPU offloading is for Adam'
         if args.cpu_torch_adam:
@@ -141,52 +143,73 @@ def get_megatron_optimizer(
             betas=(args.adam_beta1, args.adam_beta2),
             eps=args.adam_eps,
         )
-
-    elif args.optimizer.lower() == "galore_adamw":
-        from galore_torch import GaLoreAdamW, GaLoreAdamW8bit
-        # redefine way to call galore_adamw
-        optimizer = GaLoreAdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
-    elif args.optimizer.lower() == "galore_adamw":
-        # redefine way to call galore_adamw
-        optimizer = GaLoreAdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
-    # implement adafactor
-    elif args.optimizer.lower() == "adafactor":
-        import transformers
-        args.beta1 = None if args.beta1 == 0.0 else args.beta1
-        optimizer = transformers.optimization.Adafactor(
+    # ---- Adam --------------------------------------
+    elif args.optimizer == 'adam':
+        if args.ds_fused_adam:
+            # global Adam
+            from deepspeed.ops.adam import FusedAdam
+            Adam = FusedAdam
+        else:
+            Adam = torch.optim.Adam
+        optimizer = Adam(
             param_groups,
             lr=args.lr,
-            eps=(1e-30, 1e-3),
-            clip_threshold=1.0,
-            decay_rate=-0.8,
-            beta1=args.beta1,
             weight_decay=args.weight_decay,
-            relative_step=False,
-            scale_parameter=False,
-            warmup_init=False,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_eps
         )
-    # low-rank adafactor
-    elif args.optimizer.lower() == "galore_adafactor":
-        args.beta1 = None if args.beta1 == 0.0 else args.beta1
-        optimizer = GaLoreAdafactor(
+    # ---- apex.Adam --------------------------------------------
+    elif str(args.optimizer).lower() == 'apex.adam':
+        assert get_accelerator().device_name() == 'cuda'
+        from apex.optimizers import FusedAdam as Adam
+        optimizer = Adam(
             param_groups,
             lr=args.lr,
-            eps=(1e-30, 1e-3),
-            clip_threshold=1.0,
-            decay_rate=-0.8,
-            beta1=args.beta1,
             weight_decay=args.weight_decay,
-            relative_step=False,
-            scale_parameter=False,
-            warmup_init=False,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_eps
         )
-    # 8-bit Adam
+    # ---- Adam8Bit --------------------------------------
     elif args.optimizer.lower() == "adam8bit":
         import bitsandbytes as bnb
         optimizer = bnb.optim.Adam8bit(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    # ---- AdamW --------------------------------------
+    elif str(args.optimizer).lower() == 'adamw':
+        optimizer = torch.optim.AdamW(
+            param_groups,
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_eps
+        )
+    # ---- AdamW: ScheduleFree -------------------------------------
+    elif str(args.optimizer).lower() == 'adamwschedulefree':
+        import schedulefree
+        optimizer = schedulefree.AdamWScheduleFree(
+            param_groups,
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_eps,
+            warmup_steps=args.lr_warmup_iters,
+            foreach=args.schedulefree_for_each,
+        )
+    # ---- AdamW: Galore ------------------------------------------
+    elif args.optimizer.lower() == "galore_adamw":
+        from galore_torch import GaLoreAdamW
+        # redefine way to call galore_adamw
+        optimizer = GaLoreAdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    # elif args.optimizer.lower() == "galore_adamw":
+    #     from galore_torch import GaLoreAdamW
+    #     # redefine way to call galore_adamw
+    #     optimizer = GaLoreAdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    # ---- AdamW: GaloRe 8Bit --------------------------------------
     elif args.optimizer.lower() == "galore_adamw8bit":
+        from galore_torch import GaLoreAdamW8bit
         optimizer = GaLoreAdamW8bit(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    # ---- AdamW8bitPerLayer: GaloRE ----------------------------
     elif args.optimizer.lower() == 'galore_adamw8bit_per_layer':
+        from galore_torch import GaLoreAdamW8bit
         # TODO: seems scheduler call twice in one update step, need to check, for now double the num_training_steps, warmup_steps and update_proj_gap
         optimizer_dict = {}
         for p in model.parameters():
@@ -219,45 +242,48 @@ def get_megatron_optimizer(
             if p.requires_grad:
                 p.register_post_accumulate_grad_hook(optimizer_hook)
         layer_wise_flag = True
-    elif str(args.optimizer) == 'ipex.lamb':
-        from intel_extension_for_pytorch.optim._lamb import Lamb
-        optimizer = Lamb(
+    # ---- AdaFactor --------------------------------------
+    elif args.optimizer.lower() == "adafactor":
+        import transformers
+        args.beta1 = None if args.beta1 == 0.0 else args.beta1
+        optimizer = transformers.optimization.Adafactor(
+            param_groups,
+            lr=args.lr,
+            eps=(1e-30, 1e-3),
+            clip_threshold=1.0,
+            decay_rate=-0.8,
+            beta1=args.beta1,
+            weight_decay=args.weight_decay,
+            relative_step=False,
+            scale_parameter=False,
+            warmup_init=False,
+        )
+    # ---- GaLore: Adafactor adafactor ------------------------------------
+    elif args.optimizer.lower() == "galore_adafactor":
+        from galore_torch import GaLoreAdafactor
+        args.beta1 = None if args.beta1 == 0.0 else args.beta1
+        optimizer = GaLoreAdafactor(
+            param_groups,
+            lr=args.lr,
+            eps=(1e-30, 1e-3),
+            clip_threshold=1.0,
+            decay_rate=-0.8,
+            beta1=args.beta1,
+            weight_decay=args.weight_decay,
+            relative_step=False,
+            scale_parameter=False,
+            warmup_init=False,
+        )
+    # ---- Apex: sgd ---------------------------------------------
+    elif str(args.optimizer).lower() == 'apex.sgd':
+        from apex.optimizers import FusedSGD as SGD
+        optimizer = SGD(
             param_groups,
             lr=args.lr,
             weight_decay=args.weight_decay,
-            betas=(args.adam_beta1, args.adam_beta2),
-            eps=args.adam_eps,
+            momentum=args.sgd_momentum
         )
-    elif str(args.optimizer) == 'ipex.fusedlamb':
-        from intel_extension_for_pytorch.optim._lamb import Lamb
-        optimizer = Lamb(
-            param_groups,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-            betas=(args.adam_beta1, args.adam_beta2),
-            eps=args.adam_eps,
-            fused=True,
-        )
-    elif str(args.optimizer).lower() == 'ds.fusedlamb':
-        from deepspeed.ops.lamb import FusedLamb
-        optimizer = FusedLamb(
-            param_groups,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-            betas=(args.adam_beta1, args.adam_beta2),
-            eps=args.adam_eps,
-        )
-    elif str(args.optimizer).lower() == 'adamwschedulefree':
-        import schedulefree
-        optimizer = schedulefree.AdamWScheduleFree(
-            param_groups,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-            betas=(args.adam_beta1, args.adam_beta2),
-            eps=args.adam_eps,
-            warmup_steps=args.lr_warmup_iters,
-            foreach=args.schedulefree_for_each,
-        )
+    # ---- ScheduleFree: SGD -------------------------------
     elif str(args.optimizer).lower() == 'sgdschedulefree':
         import schedulefree
         optimizer = schedulefree.SGDScheduleFree(
@@ -268,45 +294,54 @@ def get_megatron_optimizer(
             warmup_steps=args.lr_warmup_iters,
             foreach=args.schedulefree_for_each,
         )
-    elif str(args.optimizer).lower() == 'apex.adam':
-        assert get_accelerator().device_name() == 'cuda'
-        from apex.optimizers import FusedAdam as Adam
-        optimizer = Adam(
+    # ---- Lamb: Ipex --------------------------------------------
+    elif str(args.optimizer) == 'ipex.lamb':
+        from intel_extension_for_pytorch.optim._lamb import Lamb
+        optimizer = Lamb(
             param_groups,
             lr=args.lr,
             weight_decay=args.weight_decay,
             betas=(args.adam_beta1, args.adam_beta2),
-            eps=args.adam_eps
+            eps=args.adam_eps,
         )
-    elif str(args.optimizer).lower() == 'apex.sgd':
-        from apex.optimizers import FusedSGD as SGD
-        optimizer = SGD(
-            param_groups,
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-            momentum=args.sgd_momentum
-        )
-    elif str(args.optimizer).lower() == 'adamw':
-        optimizer = torch.optim.AdamW(
+    # ---- Lamb(Fused): Ipex ----------------------------------------
+    elif str(args.optimizer) == 'ipex.fusedlamb':
+        from intel_extension_for_pytorch.optim._lamb import Lamb
+        optimizer = Lamb(
             param_groups,
             lr=args.lr,
             weight_decay=args.weight_decay,
             betas=(args.adam_beta1, args.adam_beta2),
-            eps=args.adam_eps
+            eps=args.adam_eps,
+            fused=True,
         )
-    elif args.optimizer == 'adam':
-        if args.ds_fused_adam:
-            # global Adam
-            from deepspeed.ops.adam import FusedAdam
-            Adam = FusedAdam
-        else:
-            Adam = torch.optim.Adam
-        optimizer = Adam(
+    # ---- Lamb(Fused): DeepSpeed ------------------------------------------
+    elif str(args.optimizer).lower() == 'ds.fusedlamb':
+        from deepspeed.ops.lamb import FusedLamb
+        optimizer = FusedLamb(
             param_groups,
             lr=args.lr,
             weight_decay=args.weight_decay,
             betas=(args.adam_beta1, args.adam_beta2),
-            eps=args.adam_eps
+            eps=args.adam_eps,
+        )
+    # ---- Shampoo ----------------------------------------
+    elif args.optimizer == 'shampoo':
+        from distributed_shampoo.distributed_shampoo import DistributedShampoo
+        from distributed_shampoo.shampoo_types import AdamGraftingConfig
+        optimizer = DistributedShampoo(
+            model.parameters(),
+            lr=0.001,
+            betas=(0.9, 0.999),
+            epsilon=1e-12,
+            weight_decay=1e-05,
+            max_preconditioner_dim=8192,
+            precondition_frequency=100,
+            use_decoupled_weight_decay=True,
+            grafting_config=AdamGraftingConfig(
+                beta2=0.999,
+                epsilon=1e-08,
+            ),
         )
     elif args.optimizer == 'sgd':
         optimizer = torch.optim.SGD(
@@ -326,8 +361,10 @@ def get_megatron_optimizer(
         )
     else:
         raise TypeError(f'{args.optimizer} optimizer is not supported.')
+    assert optimizer is not None
     if args.deepspeed:
         return optimizer
+
     # Determine whether the params have main-grad field.
     params_have_main_grad = False
     if args.use_contiguous_buffers_in_local_ddp:
