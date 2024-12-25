@@ -954,20 +954,22 @@ def _add_training_args(parser):
         default='adam',
         choices=[
             'adam',
+            'adam8bit',
             'adamw',
-            'sophiag',
-            'sgd',
-            'ds.fusedlamb',
-            'ipex.lamb',
-            'ipex.fusedlamb',
+            'adamwschedulefree',
             'apex.adam',
             'apex.sgd',
-            'adamwschedulefree',
-            'sgdschedulefree',
+            'ds.fusedlamb',
+            'ds.onebitlamb',
             'galoreadamw',
-            'adam8bit',
             'galoreadamw8bit',
-            'galoreadamw8bitperlayer'
+            'galoreadamw8bitperlayer',
+            'ipex.fusedlamb',
+            'ipex.lamb',
+            'shampoo',
+            'sgd',
+            'sgdschedulefree',
+            'sophiag'
         ],
         help='Optimizer function'
     )
