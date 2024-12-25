@@ -940,6 +940,23 @@ class ParallelAttention(MegatronModule):
                     context_layer = self._checkpointed_attention_forward(
                         query_layer, key_layer, value_layer, attention_mask)
                 else:
+                    ###########################################################
+                    # BUG:
+                    # Make it to here when NOT using flash attn
+                    # before crashing with:
+                    #
+                    # 1. `TypeError`:
+                    # #
+                    #    ```python
+                    #    TypeError: ParallelAttention.forward() got an unexpected keyword argument 'cpu_offloading'
+                    #    ```
+                    #
+                    # 2. `RuntimeError`:
+                    #
+                    #    ```python
+                    #    RuntimeError: shape '[4096, 2, 4096]' is invalid for input of size 67108864
+                    #    ```
+                    ###########################################################
                     context_layer = self.core_attention(
                         query_layer, key_layer, value_layer, attention_mask)
 
