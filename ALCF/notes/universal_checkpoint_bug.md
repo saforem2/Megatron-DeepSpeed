@@ -2,33 +2,35 @@
 
 ## Table of Contents
 
-- [📓 Summary](#summary)
-- [🚧 Issue](#issue)
-- [🤔 Why is this Happening?](#-why-is-this-happening)
-- [🔍 Running with Debugger](#-running-with-debugger)
-- [🧰 Fix](#-fix)
-- [✅ Confirm Fix Works](#-confirm-fix-works)
-- [👻 Bug Doesn't Appear for Smaller Checkpoints](#-bug-doesnt-appear-for-smaller-checkpoints)
+
+1. [📓 Summary](#-summary)
+1. [🚧 Issue](#-issue)
+   1. [🔍 Running with Debugger](#-running-with-debugger)
+   1. [🤔 Why is this Happening?](#-why-is-this-happening)
+   1. [🧰 Proposed Fix](#-proposed-fix)
+   1. [✅ Confirm Fix Works](#-confirm-fix-works)
+ 1. [👻 Bug Doesn't Appear for Smaller Checkpoints](#-bug-doesnt-appear-for-smaller-checkpoints)
 
 
 ## 📓 Summary
 
-- Everything works _as is_ for checkpoints created on small scales (small DP ?)
+- ✅ Everything works _as is_ for checkpoints created on small scales (small DP ?)
   - Explicitly confrm this
-    (see [👻 Bug Doesn't appear for smaller checkpoints](#bug-doesnt-appear-for-smaller-checkpoints))
+    (see [👻 Bug Doesn't appear for smaller checkpoints](#-bug-doesnt-appear-for-smaller-checkpoints))
     by:
 
     1. Generate checkpoint from using 4 nodes of Aurora
     2. Convert this checkpoint to universal without issue
 
-- Trying to repeat this exact same process, but using a c checkpoint created
-  with `DP=768` (12 nodes of Aurora) fails with a `RuntimeError`
+- ❌ Trying to repeat this exact same process, but using a checkpoint created
+  with `DP=768` (12 nodes of Aurora) fails with a `RuntimeError`.
 
-
-- ❌ `RuntimeError` when trying to convert checkpoint created with `DP=768` (12 nodes of Aurora)
-  - Description of bug
-  - 🧰 Proposed fix
-  - ✅ Confirmation of Fix
+  We then walk through:
+  - [🚧 A Description of bug](#-issue)
+  - [🔍 Running with Debugger](#-running-with-debugger)
+  - [🤔 Why is this Happening?](#-why-is-this-happening)
+  - [🧰 Proposed fix](#-proposed-fix)
+  - [✅ Confirmation of Fix](#-confirm-fix-works)
 
 
 ## 🚧 Issue
@@ -102,94 +104,7 @@ Even more interesting, this only seems to happen for checkpoints created using
 more than 18 nodes of Aurora (which would correspond to a `data_parallel_size = 216`)
 -->
 
-## 🤔 Why is this Happening?
-
-The `extract_zero_shards` function [here] in `ds_to_universal.py`
-
-[`extract_zero_shards`](/ALCF/ds_to_universal.py#L132) function, the
-`raw_length` is calculated as `raw_length = state_value.numel() -
-group_paddings[key]`.
-
-This is causing the `raw_length` to be negative in some
-cases. This is causing the following error:
-
-
-```python
-def extract_zero_shards(dir, ds_checkpoint, indices_3D):
-    pp_index, tp_index, dp_index = indices_3D
-    sd = ds_checkpoint.get_zero_checkpoint_state(
-        pp_index=pp_index,
-        tp_index=tp_index,
-        dp_index=dp_index,
-        strip_tensor_paddings=False,
-    )
-```
-
-
-In particular, in the call
-
-```python
-sd = ds_checkpoint.get_zero_checkpoint_state(
-    pp_index=pp_index, tp_index=tp_index, dp_index=dp_index
-)
-```
-
-this then calls the `DeepSpeedCheckpoint.get_zero_checkpoint_state` method
-[here](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/deepspeed_checkpoint.py#L123-L127)
-
-```python
-def get_zero_checkpoint_state(self, pp_index, tp_index, dp_index) -> dict:
-        return self.zero_checkpoint.get_state_for_rank(pp_index=pp_index,
-                                                       tp_index=tp_index,
-                                                       dp_index=dp_index,
-                                                       keys_to_ignore=[PARAM_SHAPES])
-```
-
-This is a call to the `ZeROCheckpoint.get_state_for_rank` method from
-[here](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/zero_checkpoint.py#L53-L73)
-
-Now, this `get_state_for_rank` function accepts an argument
-`strip_tensor_paddings` which is true by default.
-
-Calling the `strip_tensor_paddings` method (with `strip_tensor_paddings=True`), we hit:
-
-```python
-for state_file in state_file_list:
-    # ...clipped...
-    if strip_tensor_paddings:
-        self._strip_tensor_paddings(sd)  # <-- this is where the error is raised
-```
-
-and we hit the `RuntimeError` when calling this
-`self._strip_tensor_paddings(sd)` method.
-
-Stepping into the `self._strip_tensor_paddings` method, we see that it calls
-[this block](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/zero_checkpoint.py#L108-L110)
-which calculates the `raw_length` as:
-
-```python
-def _strip_tensor_paddings(self, sd):
-    param_group_states = self._get_param_group_states(sd)
-    if param_group_states is None:
-        return
-
-    group_paddings = self._get_optimizer_state(sd, GROUP_PADDINGS)
-    if group_paddings is None:
-        return
-
-    for key, group_state in param_group_states.items():
-        if group_paddings[key] == 0:
-            continue
-        for state_name, state_value in group_state.items():
-            if state_name != "step" and torch.is_tensor(state_value):
-                # 🐛 see debugger output below
-                raw_length = state_value.numel() - group_paddings[key]  # <-- this is negative
-                group_state[state_name] = torch.narrow(state_value, 0, 0, raw_length).clone()
-            else:
-                group_state[state_name] = state_value
-```
-
-## 🔍 Running with Debugger
+### 🔍 Running with Debugger
 
 Running with:
 
@@ -256,57 +171,141 @@ RuntimeError: narrow(): length must be non-negative.
 1
 ```
 
-## 🧰 Fix
+### 🤔 Why is this Happening?
 
-Naively, the first thing I tried was to see if I could just skip this
+The problematic line occurs here in [deepspeed / checkpoint / `ds_to_universal.py#L114`](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/ds_to_universal.py#L114), shown below:
+
+```python
+sd = ds_checkpoint.get_zero_checkpoint_state(
+    pp_index=pp_index, tp_index=tp_index, dp_index=dp_index
+)
+```
+
+The `extract_zero_shards` function tries calling the `DeepSpeedCheckpoint.get_zero_checkpoint_state` method
+here [deepspeed / `checkpoint.py#L123-127`](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/deepspeed_checkpoint.py#L123-L127), which looks like:
+
+```python
+def get_zero_checkpoint_state(self, pp_index, tp_index, dp_index) -> dict:
+        return self.zero_checkpoint.get_state_for_rank(pp_index=pp_index,
+                                                       tp_index=tp_index,
+                                                       dp_index=dp_index,
+                                                       keys_to_ignore=[PARAM_SHAPES])
+```
+
+This (^) then calls the `ZeROCheckpoint.get_state_for_rank` method from
+[deepspeed / checkpoint / `zero_checkpoint.py#L53-73`](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/zero_checkpoint.py#L53-L73).
+
+Now, this `get_state_for_rank` function accepts an argument
+`strip_tensor_paddings` which is true by default.
+
+Calling the `strip_tensor_paddings` method (with `strip_tensor_paddings=True`), we hit:
+
+```python
+for state_file in state_file_list:
+    # ...clipped...
+    if strip_tensor_paddings:
+        self._strip_tensor_paddings(sd)  # <-- this is where the error is raised
+```
+
+and we hit the `RuntimeError` when calling this
+`self._strip_tensor_paddings(sd)` method.
+
+Stepping into the `self._strip_tensor_paddings` method, we see that it calls
+[this block](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/zero_checkpoint.py#L108-L110)
+(shown below) which calculates the `raw_length` as:
+
+```python
+def _strip_tensor_paddings(self, sd):
+    param_group_states = self._get_param_group_states(sd)
+    if param_group_states is None:
+        return
+
+    group_paddings = self._get_optimizer_state(sd, GROUP_PADDINGS)
+    if group_paddings is None:
+        return
+
+    for key, group_state in param_group_states.items():
+        if group_paddings[key] == 0:
+            continue
+        for state_name, state_value in group_state.items():
+            if state_name != "step" and torch.is_tensor(state_value):
+                # 🐛 see debugger output below
+                raw_length = state_value.numel() - group_paddings[key]  # <-- this is negative
+                group_state[state_name] = torch.narrow(state_value, 0, 0, raw_length).clone()
+            else:
+                group_state[state_name] = state_value
+```
+
+which, when `raw_length` is negative, causes:
+
+```python
+group_state[state_name] = torch.narrow(state_value, 0, 0, raw_length).clone()
+RuntimeError: narrow(): length must be non-negative.
+```
+
+It wasn't immediately obvious what this `strip_tensor_paddings` argument represents
+(or even what the method is doing, to be honest), so I didn't have much insight 
+into why this would only be happening for checkpoints created at larger scales.
+
+
+### 🧰 Proposed Fix
+
+Naively, the first (and easiest) thing to try was to see if I could just skip this
 `strip_tensor_paddings` step by setting `strip_tensor_paddings=False` in the
-call to `get_zero_checkpoint_state` in the `extract_zero_shards` function, as
-shown below:
+call to (1) `get_zero_checkpoint_state` in the (2) `extract_zero_shards` function.
 
-```diff
-diff --git a/deepspeed/checkpoint/ds_to_universal.py b/deepspeed/checkpoint/ds_to_universal.py
-index f7b75eee..cbbbef6b 100755
---- a/deepspeed/checkpoint/ds_to_universal.py
-+++ b/deepspeed/checkpoint/ds_to_universal.py
-@@ -111,7 +111,7 @@ def _save_checkpoint(file_path, chkpt_sd):
- 
- def extract_zero_shards(dir, ds_checkpoint, indices_3D):
-     pp_index, tp_index, dp_index = indices_3D
--    sd = ds_checkpoint.get_zero_checkpoint_state(pp_index=pp_index, tp_index=tp_index, dp_index=dp_index)
-+    sd = ds_checkpoint.get_zero_checkpoint_state(pp_index=pp_index, tp_index=tp_index, dp_index=dp_index, strip_tensor_paddings=False)
- 
-     # pprint(f"Processing {dp_index=} {pp_index=}, {tp_index=}")
-```
+Unfortunately, since (1) `DeepSpeedCheckpoint.get_zero_checkpoint_state()`
+**DOES NOT** take in the `strip_tensor_paddings` argument,
+there is no way to pass this along to the (2) `ZeROCheckpoint.get_state_for_rank()` call.
 
-But unfortunately, the `DeepSpeedCheckpoint` doesn't allow the
-`strip_tensor_paddings` argument to be passed through to the
-`get_zero_checkpoint_state` method, requiring an additional modification:
+So, our proposed fix requires two modifications:
 
-```diff
-warning: Empty last update token.
-diff --git a/deepspeed/checkpoint/deepspeed_checkpoint.py b/deepspeed/checkpoint/deepspeed_checkpoint.py
-index 31997177..a2ef5d0d 100644
---- a/deepspeed/checkpoint/deepspeed_checkpoint.py
-+++ b/deepspeed/checkpoint/deepspeed_checkpoint.py
-@@ -120,11 +120,12 @@ class DeepSpeedCheckpoint(object):
-         self.global_state[ITERATION_KEY] = sd.get(ITERATION_KEY, 0)
-         self.global_state[ARGS_KEY] = sd.get(ARGS_KEY, None)
+1. Modify `DeepSpeedCheckpoint.get_zero_checkpoint_state` signature from [here](https://github.com/microsoft/DeepSpeed/blob/cc03c76d57f41752d8cfb84c2e45b8e0da8083da/deepspeed/checkpoint/deepspeed_checkpoint.py#L123) to accept the `strip_tensor_paddings` argument:
 
--    def get_zero_checkpoint_state(self, pp_index, tp_index, dp_index) -> dict:
--        return self.zero_checkpoint.get_state_for_rank(pp_index=pp_index,
-+    def get_zero_checkpoint_state(self, pp_index, tp_index, dp_index, strip_tensor_paddings: bool = True) -> dict:
-+        return self.zero_checkpoint.get_state_for_rank(pp_index=pp_index,  # type:ignore
-                                                        tp_index=tp_index,
-                                                        dp_index=dp_index,
--                                                       keys_to_ignore=[PARAM_SHAPES])
-+                                                       keys_to_ignore=[PARAM_SHAPES],
-+                                                       strip_tensor_paddings=strip_tensor_paddings)
+    ```diff
+    warning: Empty last update token.
+    diff --git a/deepspeed/checkpoint/deepspeed_checkpoint.py b/deepspeed/checkpoint/deepspeed_checkpoint.py
+    index 31997177..a2ef5d0d 100644
+    --- a/deepspeed/checkpoint/deepspeed_checkpoint.py
+    +++ b/deepspeed/checkpoint/deepspeed_checkpoint.py
+    @@ -120,11 +120,12 @@ class DeepSpeedCheckpoint(object):
+             self.global_state[ITERATION_KEY] = sd.get(ITERATION_KEY, 0)
+             self.global_state[ARGS_KEY] = sd.get(ARGS_KEY, None)
+    
+    -    def get_zero_checkpoint_state(self, pp_index, tp_index, dp_index) -> dict:
+    -        return self.zero_checkpoint.get_state_for_rank(pp_index=pp_index,
+    +    def get_zero_checkpoint_state(self, pp_index, tp_index, dp_index, strip_tensor_paddings: bool = True) -> dict:
+    +        return self.zero_checkpoint.get_state_for_rank(pp_index=pp_index,  # type:ignore
+                                                            tp_index=tp_index,
+                                                            dp_index=dp_index,
+    -                                                       keys_to_ignore=[PARAM_SHAPES])
+    +                                                       keys_to_ignore=[PARAM_SHAPES],
+    +                                                       strip_tensor_paddings=strip_tensor_paddings)
+    
+         def get_zero_files(self, pp_index, tp_index, dp_index) -> list:
+             return self.zero_checkpoint.get_files_for_rank(pp_index=pp_index, tp_index=tp_index, dp_index=dp_index)
+    ```
 
-     def get_zero_files(self, pp_index, tp_index, dp_index) -> list:
-         return self.zero_checkpoint.get_files_for_rank(pp_index=pp_index, tp_index=tp_index, dp_index=dp_index)
-```
+1. With this in place, we can now try setting `strip_tensor_paddings = False` in the call shown below:
+
+    ```diff
+    diff --git a/deepspeed/checkpoint/ds_to_universal.py b/deepspeed/checkpoint/ds_to_universal.py
+    index f7b75eee..cbbbef6b 100755
+    --- a/deepspeed/checkpoint/ds_to_universal.py
+    +++ b/deepspeed/checkpoint/ds_to_universal.py
+    @@ -111,7 +111,7 @@ def _save_checkpoint(file_path, chkpt_sd):
+     
+     def extract_zero_shards(dir, ds_checkpoint, indices_3D):
+         pp_index, tp_index, dp_index = indices_3D
+    -    sd = ds_checkpoint.get_zero_checkpoint_state(pp_index=pp_index, tp_index=tp_index, dp_index=dp_index)
+    +    sd = ds_checkpoint.get_zero_checkpoint_state(pp_index=pp_index, tp_index=tp_index, dp_index=dp_index, strip_tensor_paddings=False)
+    ```
 
 ### ✅ Confirm Fix Works
+
+We've added the proposed changes above to the `saforem2/ucp-bug` branch.
+
+We can confirm explicitly that the proposed fix works by retrying the conversion:
 
 ```bash
 $ cd deps/DeepSpeed && git status && git checkout 'saforem2/ucp-bug' && PAGER='' git diff deepspeed/checkpoint/ && cd - && ckpt_dir=checkpoints/ws768_ds_stage1_nl32_hs4096_mb4_seq4096_gb3072_sp1_pp1_tp1_bf16_optadamw_lr0.00020_lwf0.05 ; gs=$(cat "${ckpt_dir}/latest_checkpointed_iteration.txt") && echo "global step: ${gs}" && python3 deps/DeepSpeed/deepspeed/checkpoint/ds_to_universal.py --input_folder "${ckpt_dir}/global_step${gs}" --output_folder "${ckpt_dir}/global_step${gs}_universal" --keep_temp_folder
@@ -329,9 +328,12 @@ Converting DeepSpeed checkpoint in checkpoints/ws768_ds_stage1_nl32_hs4096_mb4_s
 took: 0h:09m:00s
 ```
 
+fixed!
+
 ## 👻 Bug Doesn't Appear for Smaller Checkpoints
 
-As a sanity check, we can explicitly test:
+As a sanity check, we can explicitly test that everything works
+_as is_ when converting smaller checkpoints to universal format.
 
 1. Create checkpoint on 4 nodes of Aurora
 
