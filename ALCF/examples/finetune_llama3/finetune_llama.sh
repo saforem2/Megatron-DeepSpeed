@@ -1,6 +1,6 @@
-DS_CONFIG=./examples_deepspeed/finetune_hf_llama3p3/ds_config.json
-DS_CONFIG_EMPTY=./examples_deepspeed/finetune_hf_llama3p3/ds_config_empty.json
-DATASET_PATH=./examples_deepspeed/finetune_hf_llama3p3/alpaca_data.json
+DS_CONFIG=./ALCF/examples/finetune_llama3/ds_config.json
+DS_CONFIG_EMPTY=./ALCF/examples/finetune_llama3/ds_config_empty.json
+DATASET_PATH=./ALCF/examples/finetune_llama3/alpaca_data.json
 # dataset link: https://github.com/tatsu-lab/stanford_alpaca/blob/main/alpaca_data.json
 HF_LLAMA_PATH=/flare/Aurora_deployment/meta-llama/70B/Llama-3.3-70B-Instruct
 # HF_LLAMA_PATH=/flare/Aurora_deployment/meta-llama/70B/Llama-3.3-70B-Instruct
@@ -78,11 +78,11 @@ cat <<EOT > $DS_CONFIG_EMPTY
 EOT
 
 if [ "$1" = "convert_hf2mds" ]; then
-    DS_CONFIG_PATH="./examples_deepspeed/finetune_hf_llama3p3/ds_config_empty.json"
+    DS_CONFIG_PATH="./ALCF/examples/finetune_llama3/ds_config_empty.json"
 elif [ "$1" = "convert_mds2hf" ]; then
-    DS_CONFIG_PATH="./examples_deepspeed/finetune_hf_llama3p3/ds_config_empty.json"
+    DS_CONFIG_PATH="./ALCF/examples/finetune_llama3/ds_config_empty.json"
 else
-    DS_CONFIG_PATH="./examples_deepspeed/finetune_hf_llama3p3/ds_config.json"
+    DS_CONFIG_PATH="./ALCF/examples/finetune_llama3/ds_config.json"
 fi
 
 # --hf-ckpt-num-shards 2 \
@@ -150,6 +150,7 @@ comm_args="--tensor-model-parallel-size $TP \
 --no-gradient-accumulation-fusion \
 --repeated-dataloader"
 
+# --tokenizer-model meta-llama/Llama-2-7B-hf \
 # --tokenizer-type HFTokenizer \
 # --tokenizer-model 'file:///flare/Aurora_deployment/meta-llama/70B/Llama-3.3-70B-Instruct' \
 # --tokenizer-model meta-llama/Llama-3-70B-Instruct \

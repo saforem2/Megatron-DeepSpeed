@@ -1,3 +1,14 @@
+# Finetune Llama3 from Hugging Face Checkpoint
+
+```bash
+git clone https://github.com/argonne-lcf/Megatron-DeepSpeed
+cd Megatron-DeepSpeed
+curl https://raw.githubusercontent.com/tatsu-lab/stanford_alpaca/refs/heads/main/alpaca_data.json -o alpaca_data.json
+bash ALCF/examples/finetune_llama3/finetune_llama.sh convert_hf2mds
+```
+
+
+
 ## Example of Finetuning LLAMA-7B from Hugging Face Weights
 
 ### Dataset
