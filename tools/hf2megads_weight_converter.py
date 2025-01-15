@@ -1,19 +1,17 @@
+import ezpz
 import torch
 import re
 import sys
 import os
-import ezpz as ez
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch.distributed
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 from megatron import get_tokenizer, get_args
-from megatron.tokenizer.tokenizer import _vocab_size_with_padding
 from megatron.core import mpu
 from megatron.core import tensor_parallel
 from megatron.core.utils import divide
 from megatron.model import GPTModelPipe, Float16Module
-from megatron.utils import unwrap_model, get_logger
+from megatron.utils import unwrap_model
 from megatron.model import DistributedDataParallel as LocalDDP
 from megatron.arguments import core_transformer_config_from_args
 from megatron.initialize import initialize_megatron
@@ -25,8 +23,9 @@ import deepspeed
 import copy
 from pathlib import Path
 
-RANK = ez.setup_torch('deepspeed')
-log = get_logger(__name__, rank_zero_only=True)
+
+RANK = ezpz.setup_torch('deepspeed')
+logger = ezpz.get_logger(__name__)
 
 
 def add_extra_args(parser):
@@ -57,7 +56,7 @@ def compute_partition_range(hidden_size, local_rank, tp_size):
 def load_and_print_hf_weight(hf_ckpt_dir, hf_ckpt_num_of_shards):
     # Optimization point: We can selectively load specific 'shared' data to reduce CPU memory usage.
     loaded = {}
-    log.info(
+    logger.info(
         f"----------------------------hf weight list----------------------------")
 
     for wid in range(1, hf_ckpt_num_of_shards + 1):
@@ -65,7 +64,7 @@ def load_and_print_hf_weight(hf_ckpt_dir, hf_ckpt_num_of_shards):
             f"{hf_ckpt_dir}/pytorch_model-{wid:05d}-of-{hf_ckpt_num_of_shards:05d}.bin",
             map_location=torch.device('cpu'))
         for k in d:
-            log.info(k)
+            logger.info(k)
             assert k not in loaded
             loaded[k] = d[k].clone()
     del d
@@ -76,7 +75,7 @@ def load_and_print_hf_weight_from_safetensor(hf_ckpt_dir, hf_ckpt_num_of_shards)
     from safetensors import safe_open
     # Optimization point: We can selectively load specific 'shared' data to reduce CPU memory usage.
     hf_model = {}
-    log.info(
+    logger.info(
         f"----------------------------hf weight list----------------------------")
 
     for wid in range(1, hf_ckpt_num_of_shards + 1):
@@ -87,7 +86,7 @@ def load_and_print_hf_weight_from_safetensor(hf_ckpt_dir, hf_ckpt_num_of_shards)
 
         with safe_open(ckpt_path, framework="pt", device="cpu") as f:
             for k in f.keys():
-                log.info(f"name: {k}, shape: {f.get_tensor(k).shape}")
+                logger.info(f"name: {k}, shape: {f.get_tensor(k).shape}")
                 assert k not in hf_model
                 hf_model[k] = f.get_tensor(k).clone()
 
@@ -105,18 +104,18 @@ def load_and_print_hf_weight_auto(hf_ckpt_dir, no_init=True):
     else:
         hf_model = {}
         hf_auto_model = AutoModelForCausalLM.from_pretrained(hf_ckpt_dir, trust_remote_code=True, torch_dtype=torch.bfloat16)
-        log.info(
+        logger.info(
             f"----------------------------hf weight list----------------------------")
 
         for name, param in hf_auto_model.named_parameters():
             hf_model[name] = param.clone()
-            log.info(name)
+            logger.info(name)
 
     return hf_model
 
 
 def print_distinct_weights(model):
-    log.info(
+    logger.info(
         f"----------------------------mega-ds weight list----------------------------")
     for pipe_rank in range(mpu.get_pipeline_model_parallel_world_size()):
         if mpu.get_pipeline_model_parallel_rank() == pipe_rank:
@@ -159,11 +158,7 @@ class refactor:
         elif pname == f"{self.mega_emb_wnum}.word_embeddings.weight":
             hf_name = "model.embed_tokens.weight"
         hf_w = self.hf_model[hf_name]
-        log.info(f"{hf_w.shape[0]=}")
-        log.info(f"{self.token_vocab=}")
-        if hf_w.shape[0] != self.padded_vocab_size:
-            torch.distributed.breakpoint(0)
-        assert hf_w.shape[0] == self.padded_vocab_size
+        assert hf_w.shape[0] == self.token_vocab
         per_partition_vocab_size, start_index, end_index = compute_partition_range(
             self.padded_vocab_size, self.tp_rank, self.tp_size)
         end_index = min(end_index, self.token_vocab)
@@ -178,6 +173,9 @@ class refactor:
             f"mega-ds: {pname,p.data.shape}<--hf: {hf_name,}  [{start_index}:{end_index},:]  of {hf_w.shape}"
         )
         return new_w
+
+    
+
 
     def _direct_refactor(self, pname, p, hf_layer=None, subname=None):
         if pname == f"{self.mega_norm_wnum}.weight":
@@ -199,38 +197,43 @@ class refactor:
         wk = self.hf_model[hf_wk_name]
         wv = self.hf_model[hf_wv_name]
 
-        hidden_size = wq.shape[0]
-        per_partition_size, start_index, end_index = compute_partition_range(
-            hidden_size, self.tp_rank, self.tp_size)
-        hidden_size_per_attention_head = divide(hidden_size,
+        query_hidden_size = wq.shape[0]
+        kv_hidden_size = wk.shape[0]
+
+        per_partition_size, start_qindex, end_index = compute_partition_range(
+            query_hidden_size, self.tp_rank, self.tp_size)
+        _,start_kvindex, _= compute_partition_range(
+            kv_hidden_size, self.tp_rank, self.tp_size)
+
+        hidden_size_per_attention_head = divide(query_hidden_size,
                                                 self.config.num_attention_heads)
         num_attention_heads_per_partition = divide(self.config.num_attention_heads,
                                                    self.tp_size)
 
-        new_w = torch.zeros((per_partition_size * 3, wq.shape[1]), dtype=wq.dtype)
+        num_kv_heads_per_partition= divide(self.config.num_key_value_heads,
+                                                   self.tp_size)
+        qkv_size=(num_attention_heads_per_partition+2*num_kv_heads_per_partition)*hidden_size_per_attention_head
+        num_qheads_per_group=divide(self.config.num_attention_heads,self.config.num_key_value_heads)
+        num_groups =divide(num_attention_heads_per_partition,num_qheads_per_group)
+        new_w = torch.zeros((qkv_size, wq.shape[1]), dtype=wq.dtype)
 
-        # >>> pname
-        # '2.self_attention.query_key_value.weight'
-        # >>> p.shap^U
-        # '2.self_attention.query_key_value.weight'
-        # >>> xp = p
-        # >>> xp.shape
-        # torch.Size([6144, 4096])
-        for i in range(num_attention_heads_per_partition):
-            try:
-                current_index = start_index + i * hidden_size_per_attention_head
-                next_index = current_index + hidden_size_per_attention_head
-                new_w_index = i * (3 * hidden_size_per_attention_head)
-                new_w[new_w_index: new_w_index + (3 * hidden_size_per_attention_head), :] = \
-                    torch.cat([
-                        wq[current_index: next_index, :],
-                        wk[current_index: next_index, :],
-                        wv[current_index: next_index, :]
-                    ], dim=0)
-            except Exception:
-                torch.distributed.breakpoint(0)
+        for i in range(num_groups):
+            query_current_index=start_qindex+i*num_qheads_per_group*hidden_size_per_attention_head
+            query_next_index=query_current_index+num_qheads_per_group*hidden_size_per_attention_head
+            kv_current_index=start_kvindex+i*hidden_size_per_attention_head
+            kv_next_kvindex=kv_current_index+hidden_size_per_attention_head
+
+            new_w_index=i* (num_qheads_per_group+2)*hidden_size_per_attention_head
+
+            new_w[new_w_index:new_w_index+(num_qheads_per_group+2)*hidden_size_per_attention_head,:]=\
+                torch.cat([
+                    wq[query_current_index:query_next_index,:],
+                    wk[kv_current_index:kv_next_kvindex,:],
+                    wv[kv_current_index:kv_next_kvindex,:]
+                ],dim=0)
+
         self.record_mapping_info(
-            f"mega-ds:{pname,p.data.shape}<--hf{hf_wq_name,hf_wk_name,hf_wv_name,}  cat q,k,v [{current_index}:{next_index},:]  of q,k,v{wq.shape}"
+            f"mega-ds:{pname,p.data.shape}<--hf{hf_wq_name,hf_wk_name,hf_wv_name,}  cat q,k,v [{query_current_index}:{query_next_index},:]  of q,k,v{wq.shape}"
         )
         return new_w
 
@@ -291,7 +294,7 @@ class refactor:
         return new_w
 
     def transform_from_hf_to_megds(self):
-        assert not self.is_refactored
+        assert self.is_refactored == False
         new_w = None
         for pname, p in self.ds_model.named_parameters():
 
@@ -304,7 +307,6 @@ class refactor:
                 new_w = self._direct_refactor(pname, p)
             else:
                 mobj = self.decoder_pat.match(pname)
-                assert mobj is not None
                 layer_num = int(mobj.group(1))
                 subname = mobj.group(2)
                 hf_layer = layer_num - self.offset_num
@@ -333,7 +335,7 @@ class refactor:
             new_w = None
         self.is_refactored = True
 
-
+    
     def _embedding_refactor_to_hf(self, pname, ds_w):
         if pname == f"{self.mega_lm_head_wnum}.lm_head.weight":
             hf_w = self.hf_model.lm_head.weight
@@ -344,7 +346,7 @@ class refactor:
 
         with torch.no_grad():
             ds_w_all_rank = tensor_parallel.mappings._gather_along_first_dim(ds_w)
-
+        
         self.hf_dict[hf_w_name] = copy.deepcopy(ds_w_all_rank[:hf_w.shape[0], :])
 
     def _direct_refactor_to_hf(self, pname, ds_w, hf_layer=None, subname=None):
@@ -400,17 +402,18 @@ class refactor:
         hidden_size = oldshape[-1]
         hidden_size_per_attention_head = divide(hidden_size,
                                                 self.config.num_attention_heads)
-        num_attention_heads_per_partition = divide(self.config.num_attention_heads,
-                                                   self.tp_size)
-        newshape = (self.tp_size, num_attention_heads_per_partition, 3, hidden_size_per_attention_head, hidden_size)
+        # MHA & GQA
+        group = divide(self.config.num_attention_heads, self.config.num_key_value_heads)
+        newshape = (self.config.num_key_value_heads, group + 2, hidden_size_per_attention_head, hidden_size)
         ds_w_out = ds_w_all_rank.reshape(*newshape)
-        self.hf_dict[hf_q_name] = copy.deepcopy(ds_w_out[:, :, 0, :, :].reshape(-1, oldshape[-1]))
-        self.hf_dict[hf_k_name] = copy.deepcopy(ds_w_out[:, :, 1, :, :].reshape(-1, oldshape[-1]))
-        self.hf_dict[hf_v_name] = copy.deepcopy(ds_w_out[:, :, 2, :, :].reshape(-1, oldshape[-1]))
+        query_weight, key_weight, value_weight = torch.split(ds_w_out, [group, 1, 1], dim=1)
+        self.hf_dict[hf_q_name] = copy.deepcopy(query_weight.reshape(-1, hidden_size))
+        self.hf_dict[hf_k_name] = copy.deepcopy(key_weight.reshape(-1, hidden_size))
+        self.hf_dict[hf_v_name] = copy.deepcopy(value_weight.reshape(-1, hidden_size))
+        del query_weight, key_weight, value_weight
 
 
     def transform_from_megads_to_hf(self):
-        use_gqa = True if self.num_attention_heads != self.num_key_value_heads else False
 
         for pname, p in self.ds_model.named_parameters():
             if pname in [
@@ -428,11 +431,7 @@ class refactor:
                 subname = mobj.group(2)
                 hf_layer = layer_num - self.offset_num
                 if subname in ["self_attention.query_key_value.weight"]:
-                    if not use_gqa:
-                        self._qkv_refactor_to_hf(pname, p, hf_layer)
-                    else:
-                        #TODO(billishyahao): Not impl yet ...
-                        assert False
+                    self._qkv_refactor_to_hf(pname, p, hf_layer)
                 elif subname in ["mlp.dense_h_to_4h.weight"]:
                     self._mlphto4h_dense_refactor_to_hf(pname, p, hf_layer)
                 elif subname in [
@@ -455,7 +454,7 @@ class refactor:
 
     def inorder_show_record(self):
         assert self.is_refactored
-        log.info(
+        logger.info(
             f"----------------------------mapping list----------------------------")
         # print dp rank0 tp rank0  records.
         for pipe_rank in range(mpu.get_pipeline_model_parallel_world_size()):
@@ -483,7 +482,7 @@ def load_hf_weights(args, no_init):
 def convert_ckpt():
     """Build the model."""
     args = get_args()
-    log.info(f'building model ...')
+    logger.info(f'building model ...')
     see_memory_usage(f"Before Building Model", force=True)
 
     config = core_transformer_config_from_args(args)
@@ -508,18 +507,18 @@ def convert_ckpt():
     # print_distinct_weights(hf_model)
 
     #init model and save
-    log.info(f"before deepspeed init")
+    logger.info(f"before deepspeed init")
     ds_engine, _, _, _ = deepspeed.initialize(
         model=ds_model,
         optimizer=None,
         args=args,
         lr_scheduler=None,
         mpu=mpu if args.no_pipeline_parallel else None)
-    log.info(f"after deepspeed init")
+    logger.info(f"after deepspeed init")
 
     if args.to_hf_ckpt:
         load_checkpoint([ds_engine], None, None, load_only_weights=True)
-        log.info(f"completed to load deepspeed actual checkpoint")
+        logger.info(f"completed to load deepspeed actual checkpoint")
 
     # refactor weight from hf to mega-ds and vice versa
 
@@ -540,7 +539,7 @@ def convert_ckpt():
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
-        log.info(f"hf checkpoint will be saved in {save_path}/release ")
+        logger.info(f"hf checkpoint will be saved in {save_path}/release ")
         if mpu.is_pipeline_last_stage():
             ## doing checkpoint merging and saving...
             # hf_model.tie_weights()
@@ -556,9 +555,10 @@ def convert_ckpt():
             # mega-ds checkpoint will be saved in  args.save
             hf_model.save_pretrained(os.path.join(save_path, "release"), safe_serialization=True)
     else:
-        log.info(f"mega-ds checkpoint will be saved in {args.save}")
+        logger.info(f"mega-ds checkpoint will be saved in {args.save}")
         save_checkpoint(0, [ds_engine], None, None)
-    log.info(f"save checkpoint completed")
+    
+    logger.info(f"save checkpoint completed")
 
 if __name__ == "__main__":
 
