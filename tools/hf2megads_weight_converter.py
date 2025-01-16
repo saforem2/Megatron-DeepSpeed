@@ -7,6 +7,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch.distributed
 
+from dataclasses import dataclass
+
 # from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 from megatron import get_tokenizer, get_args
 from megatron.core import mpu
@@ -19,7 +21,7 @@ from megatron.model import GPTModelPipe  # , Float16Module
 from megatron.arguments import core_transformer_config_from_args
 from megatron.initialize import initialize_megatron
 
-# from megatron.optimizer import get_megatron_optimizer
+from megatron.optimizer import get_megatron_optimizer
 from megatron.checkpointing import save_checkpoint, load_checkpoint
 
 # from megatron.training import get_optimizer_param_scheduler
@@ -34,6 +36,14 @@ try:
 except Exception:
     RANK = 0
 logger = ezpz.get_logger(__name__)
+
+
+class DummyOptimizer:
+    def __init__(self, model: torch.nn.Module, lr: float):
+        self.model = model
+        self.lr = lr
+        self.state_dict = {}
+
 
 
 def add_extra_args(parser):
@@ -662,14 +672,31 @@ def convert_ckpt():
 
     # init model and save
     logger.info('before deepspeed init')
-    ds_engine, optimizer, _, _ = deepspeed.initialize(
-        model=ds_model,
-        # optimizer=optimizer,
-        args=args,
-        lr_scheduler=None,
-        mpu=mpu if args.no_pipeline_parallel else None,
-    )
+    optimizer = None
+    dummy_optimizer = DummyOptimizer(model=ds_model, lr=args.lr)
+    if args.optimizer is None:
+        ds_engine, ds_opt, _, _ = deepspeed.initialize(
+            model=ds_model,
+            # optimizer=optimizer,
+            args=args,
+            lr_scheduler=None,
+            mpu=mpu if args.no_pipeline_parallel else None,
+        )
+        if ds_opt is not None:
+            optimizer = ds_opt
+    else:
+        ds_engine, _, _, _ = deepspeed.initialize(
+            model=ds_model,
+            # optimizer=DummyOptimizer(model=ds_model, lr=0.0),
+            args=args,
+            lr_scheduler=None,
+            mpu=mpu if args.no_pipeline_parallel else None,
+        )
+        #optimizer = torch.optim.AdamW(ds_engine )
+        #optimizer = get_megatron_optimizer(ds_model)
     logger.info('after deepspeed init')
+
+    optimizer = dummy_optimizer if optimizer is None else optimizer
 
     if args.to_hf_ckpt:
         load_checkpoint([ds_engine], None, None, load_only_weights=True)
@@ -717,15 +744,17 @@ def convert_ckpt():
     else:
         logger.info(f'mega-ds checkpoint will be saved in {args.save}')
         args.iteration = 0
-        # try:
-        save_checkpoint(
-            iteration=0,
-            model=[ds_engine],
-            optimizer=optimizer,
-            opt_param_scheduler=None,
-        )
-        # except Exception:
-        #     import pudb; pudb.set_trace()
+        try:
+            save_checkpoint(
+                iteration=0,
+                model=[ds_engine],
+                optimizer=optimizer,
+                opt_param_scheduler=None,
+            )
+        except Exception:
+            from ezpz.utils import breakpoint
+            breakpoint(0)
+        torch.distributed.barrier()
 
     logger.info('save checkpoint completed')
 
