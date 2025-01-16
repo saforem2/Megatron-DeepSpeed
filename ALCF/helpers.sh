@@ -518,7 +518,7 @@ get_grad_acc_steps_on_aurora() {
         exit 1
     fi
     nhosts=$(wc -l <"${hf}")
-    if [[ "${nhosts}" -gt 256 ]]; then
+    if [[ "${nhosts}" -ge 256 ]]; then
         gas=1
     elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then
         gas=2
@@ -629,7 +629,7 @@ setParams() {
         # NOTE: MICRO_BATCH is exported below
         # MICRO_BATCH=${MICRO_BATCH:-2}    # MICRO_BATCH = 8
         export MICRO_BATCH="${MICRO_BATCH:-$(get_batch_size_on_polaris)}"
-        if [[ -n "${NO_FLASH_ATTN-}" ]]; then
+        if [[ -n "${NO_FLASH_ATTN:-}" ]]; then
             echo "Not using flash-attn!!"
         else
             FLASH_ARG="--use-flash-attn-v2"
