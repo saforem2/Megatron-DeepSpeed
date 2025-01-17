@@ -4,6 +4,12 @@ source <(curl -s https://raw.githubusercontent.com/saforem2/ezpz/refs/heads/main
 DS_CONFIG=./ALCF/examples/finetune_llama3/ds_config.json
 DS_CONFIG_EMPTY=./ALCF/examples/finetune_llama3/ds_config_empty.json
 DATASET_PATH="./dataset/alpaca_data.json"
+
+if [[ ! -f "${DATASET_PATH}" ]]; then
+  echo "Downloading alpaca_data.json to dataset/alpaca_data.json..."
+  curl https://raw.githubusercontent.com/tatsu-lab/stanford_alpaca/refs/heads/main/alpaca_data.json -o dataset/alpaca_data.json
+fi
+
 # DATASET_PATH=./ALCF/examples/finetune_llama3/alpaca_data.json
 # dataset link: https://github.com/tatsu-lab/stanford_alpaca/blob/main/alpaca_data.json
 # HF_LLAMA_PATH=/flare/Aurora_deployment/meta-llama/70B/Llama-3.3-70B-Instruct
@@ -18,14 +24,10 @@ DATASET_PATH="./dataset/alpaca_data.json"
 MODEL_NAME="${MODEL_NAME:-"Llama-3.3-70B-Instruct"}"
 
 machine_name=$(ezpz_get_machine_name)
-if [[ "${machine_name}" == "aurora" ]]; then
+if [[ "${machine_name}" == "aurora" || "${machine_name}" == "sunspot" ]]; then
   BACKEND="ccl"
-  HF_LLAMA_PATH="${MODEL_NAME}"
-  # HF_LLAMA_PATH=/flare/Aurora_deployment/meta-llama/70B/Llama-3.3-70B-Instruct
-elif [[ "${machine_name}" == "polaris" ]]; then
+elif [[ "${machine_name}" == "polaris" || "${machine_name}" == "sophia" ]]; then
   BACKEND="nccl"
-  # HF_LLAMA_PATH="Llama-3.2-1B"
-  # HF_LLAMA_PATH=Llama-3.3-70B-Instruct
 fi
 
 HF_LLAMA_PATH="${MODEL_NAME}"
