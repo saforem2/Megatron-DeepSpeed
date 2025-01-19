@@ -594,29 +594,6 @@ setParams() {
         else
             FLASH_ARG="--use-flash-attn-builder"
         fi
-        #### [sam: 08/17/2024] ##########################################
-        # Use best set of CCL env vars from Gordon Bell runs on Aurora
-        set_ccl_vars_on_aurora
-        #################################################################
-        #### [sam: 06/20/2024] ###############################################
-        # export CCL_PROCESS_LAUNCHER=pmix
-        # export CCL_ATL_TRANSPORT=mpi
-        # !XXX: USE KEY VALUE STORE FIX ON AURORA [2024-06-20]
-        # use_kvs_fix_on_aurora  # <-- why are these different from those in update_ccl_env_vars_aurora ??
-        # update_ccl_env_vars_aurora
-        ######################################################################
-        # if [[ -z "${USE_FLASH_ATTN:-}" ]]; then
-        #     # NOTE: if NO_FLASH_ATTN is NON-empty; then NO FLASH ATTN !!
-        #     export NO_FLASH_ATTN=1 # disabled on [2024-06-20] waiting on fix...
-        #     if [[ -n "${NO_FLASH_ATTN-}" ]]; then
-        #         echo "Not using flash-attn!!"
-        #     else
-        #         FLASH_ARG="--use-flash-attn-builder"
-        #     fi
-        # else
-        #     echo "Using flash-attn !!"
-        #     FLASH_ARG="--use-flash-attn-builder"
-        # fi
     # [Polaris]
     elif [[ "${mn}" == "polaris" || "${mn}" == "sirius" ]]; then
         # export LAUNCH_CMD="${LAUNCH_CMD:-deepspeed}"
@@ -679,6 +656,11 @@ setParams() {
     fi
     export NGPU_PER_HOST="${NGPU_PER_HOST}"
     export WORLD_SIZE="${WORLD_SIZE:-$((NHOSTS * NGPU_PER_HOST))}"
+    if [[ "${WORLD_SIZE}" -gt 1 && "${mn}" == "aurora" ]]; then
+        #### [sam: 08/17/2024] ##########################################
+        # Use best set of CCL env vars from Gordon Bell runs on Aurora
+        set_ccl_vars_on_aurora
+    fi
     # +---[Llama2 7B Config]--------------------------------------------------+
     # export MODEL_KEY="Llama-7B"
     export HEADS=${HEADS:-${NHEADS:-32}}             # NUMBER OF ATEN HEADS
