@@ -137,12 +137,20 @@ def load_and_print_hf_weight_auto(hf_ckpt_dir, no_init=True):
     logger.info(
         '----------------------------hf weight list----------------------------'
     )
+    import gc
 
     hf_model = {}
-    for name, submodule in hf_auto_model.named_children():
-        for pname, param in submodule.named_parameters():
-            logger.info(f'[{name}.{pname}] shape={param.shape}')
-            hf_model[f'{name}.{pname}'] = param.clone()
+    with torch.no_grad():
+        name, submodule = None, None
+        for name, submodule in hf_auto_model.named_children():
+            pname, param = None, None
+            for pname, param in submodule.named_parameters():
+                logger.info(f'[{name}.{pname}] shape={param.shape}')
+                hf_model[f'{name}.{pname}'] = param.clone()
+            del pname, param
+            gc.collect()
+        del submodule
+        gc.collect()
 
     torch.distributed.barrier()
     return hf_model
