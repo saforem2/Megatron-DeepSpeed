@@ -26,8 +26,13 @@ MODEL_NAME="${MODEL_NAME:-"Llama-3.3-70B-Instruct"}"
 machine_name=$(ezpz_get_machine_name)
 if [[ "${machine_name}" == "aurora" || "${machine_name}" == "sunspot" ]]; then
   BACKEND="ccl"
+  HF_LLAMA_PATH="${MODEL_NAME}"
+  FLASH_ARG="--use-flash-attn-builder"
 elif [[ "${machine_name}" == "polaris" || "${machine_name}" == "sophia" ]]; then
   BACKEND="nccl"
+  FLASH_ARG="--use-flash-attn-v2"
+  # HF_LLAMA_PATH="Llama-3.2-1B"
+  # HF_LLAMA_PATH=Llama-3.3-70B-Instruct
 fi
 
 HF_LLAMA_PATH="${MODEL_NAME}"
@@ -38,7 +43,8 @@ ZERO_STAGE="${ZERO_STAGE:-0}"
 TP="${TP:-1}"
 PP="${PP:-1}"
 WORLD_SIZE="${WORLD_SIZE:-${NGPUS}}"
-GLOBAL_BATCH_SIZE=$((MICRO_BATCH_SIZE * WORLD_SIZE / (TP * PP)))
+GAS="${GRAD_ACC_STEPS:-${GAS:-1}}"
+GLOBAL_BATCH_SIZE=$((MICRO_BATCH_SIZE * GAS * WORLD_SIZE / (TP * PP)))
 # require to align with weight dimensions
 # HIDDEN_SIZE=4096
 # FFN_HIDDEN_SIZE=11008
@@ -53,7 +59,7 @@ NUM_LAYERS=$(cat "${HF_CONFIG}" | jq -r '.num_hidden_layers')
 NUM_HEADS=$(cat "${HF_CONFIG}" | jq -r '.num_attention_heads')
 NUM_KV_HEADS=$(cat "${HF_CONFIG}" | jq -r '.num_key_value_heads')
 MAX_SEQ_LENGTH=$(cat "${HF_CONFIG}" | jq -r '.max_position_embeddings')
-SEQ_LENGTH=512
+SEQ_LENGTH=2048
 ######################################
 
 printf "GLOBAL_BATCH_SIZE: %s\n" $GLOBAL_BATCH_SIZE
@@ -69,8 +75,9 @@ printf "NUM_HEADS: %s\n" $NUM_HEADS
 printf "NUM_KV_HEADS: %s\n" $NUM_KV_HEADS
 printf "SEQ_LENGTH: %s\n" $SEQ_LENGTH
 
-MEGA_DS_LLAMA_PATH="converted_hf_ckpts/${MODEL_NAME}-MDS-GBS${GLOBAL_BATCH_SIZE}-ZS${ZERO_STAGE}-TP${TP}-PP${PP}"
-mkdir -p $(dirname $MEGA_DS_LLAMA_PATH)
+CKPT_DIR="converted_hf_ckpts/${MODEL_NAME}-MDS-GBS${GLOBAL_BATCH_SIZE}-ZS${ZERO_STAGE}-TP${TP}-PP${PP}"
+TB_DIR="${CKPT_DIR}/tensorboard-output"
+mkdir -p $(dirname $TB_DIR)
 
 # Below configuration required for llama model as per llama paper
 # --no-query-key-layer-scaling \
@@ -87,7 +94,7 @@ cat <<EOT >$DS_CONFIG
   "train_batch_size" : $GLOBAL_BATCH_SIZE,
   "train_micro_batch_size_per_gpu": $MICRO_BATCH_SIZE,
   "steps_per_print": 1,
-  "gradient_accumulation_steps": 1,
+  "gradient_accumulation_steps": $GAS,
   "optimizer": {
       "type": "Adam",
       "params": {
@@ -108,7 +115,7 @@ cat <<EOT >$DS_CONFIG_EMPTY
   "train_batch_size" : $GLOBAL_BATCH_SIZE,
   "train_micro_batch_size_per_gpu": $MICRO_BATCH_SIZE,
   "steps_per_print": 1,
-  "gradient_accumulation_steps": 1,
+  "gradient_accumulation_steps": $GAS,
   "optimizer": {
       "type": "Adam",
       "params": {
@@ -136,20 +143,21 @@ fi
 covert_hf2mds_args="launch python3 tools/hf2megads_weight_converter.py \
 --hf-ckpt-dir ${HF_LLAMA_PATH} \
 --load-mode auto \
---save ${MEGA_DS_LLAMA_PATH}"
+--save ${CKPT_DIR}"
 
 # --hf-ckpt-num-shards 2 \
 covert_mds2hf_args="launch python3 tools/hf2megads_weight_converter.py \
 --hf-ckpt-dir ${HF_LLAMA_PATH} \
 --load-mode auto \
 --to-hf-ckpt \
---load ${MEGA_DS_LLAMA_PATH} \
+--load ${CKPT_DIR} \
 --save ${HF_LLAMA_PATH}'-hf-out' "
 
 finetune_args="launch python3 finetune_llama.py \
---load ${MEGA_DS_LLAMA_PATH}"
+--load ${CKPT_DIR}"
 
 comm_args+=(
+  "${FLASH_ARG}"
   "--tensor-model-parallel-size=${TP}"
   "--pipeline-model-parallel-size=${PP}"
   "--lr-warmup-iters=2000"
@@ -174,15 +182,17 @@ comm_args+=(
   "--micro-batch-size=${MICRO_BATCH_SIZE}"
   "--global-batch-size=${GLOBAL_BATCH_SIZE}"
   "--train-iters=3500"
-  "--lr=2e-5"
-  "--tensorboard-dir=tensorboard_output"
+  "--lr=${LR:-2e-5}"
   "--lr-decay-iters=320000"
   "--lr-decay-style=cosine"
   "--log-interval=1"
+  "--log-timers-to-tensorboard"
+  "--timing-log-level=1"
+  "--tensorboard-dir=${TB_DIR}"
   "--eval-iters=100"
   "--eval-interval=100"
   "--data-path=${DATASET_PATH}"
-  "--save-interval=1500"
+  "--save-interval=100"
   "--split=100,0,0"
   "--bf16"
   "--zero-stage=${ZERO_STAGE}"
