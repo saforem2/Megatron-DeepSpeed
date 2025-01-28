@@ -28,6 +28,7 @@ from torch.optim.optimizer import (
 
 __all__ = ["ADOPT", "adopt"]
 
+
 #code from https://github.com/iShohei220/adopt/blob/main/src/adopt/adopt.py, copy pasted here because no pip and not sure about submodules
 class ADOPT(Optimizer):
     def __init__(
