@@ -4,15 +4,47 @@ We would like to convert an (arbitrarily large) HuggingFace model to a ZeRO
 checkpoint so that we can use it for continual pre-training with
 Megatron-DeepSpeed.
 
-Previously, we had been using the approach from [ALCF / examples / finetune_llama3](/ALCF/examples/finetune_llama3/README.md)
+Previously, we had been using the approach from [ALCF / examples /
+finetune_llama3](/ALCF/examples/finetune_llama3/README.md).
+
+In particular, this approach works by:
+
+1. Instantiate the Megatron-DeepSpeed (MDS) model as normal (with empty
+   weights), from [\[here\]](/tools/hf2megads_weight_converter.py#L712)
+
+      ```python
+      from megatron.model import GPTModelPipe
+      ds_model = GPTModelPipe(config, num_tokentypes=0, parallel_output=True)
+      ```
+
+1. Instantiate the HF model \[[here\]](/tools/hf2megads_weight_converter.py#L725)
+
+    ```python
+    from transformers import AutoModel
+    hf_model = AutoModel.from_pretrained("meta-llama/llama-3.3-70b-instruct")
+    ```
+
+3. Instantiate optimizer [\[here\]](/tools/hf2megads_weight_converter.py#L736)
+
+1. Layer by layer, copy the weights from the HF model to the MDS model
+   \[[here\]](/tools/hf2megads_weight_converter.py#L766)
 
 
+Unfortunately, for very large models, this will slowly consume available host
+memory until it is exhausted causing the application to crash.
+
+## Proposed Solution
+
+Our proposed solution is simple and entirely contained in [ALCF / examples / checkpoint_conversion / hf_to_zero.py](/ALCF/examples/checkpoint_conversion/hf_to_zero.py).
+
+Explicitly:
+
+1. Create the HF model as normal
+2. Pass it to `deepspeed.initalize(...)` to create the `DeepSpeedEngine`
+3. `DeepSpeedEngine.save_checkpoint(...)` to save the checkpoint.
 
 
-|       Model Name       | Model Size | Model Parameters | Largest Layer Parameters | Memory Needed |
-|:----------------------:|:----------:|:----------------:|:------------------------:|:-------------:|
-| Llama-3.3-70B-Instruct |     70B    |      69503M      |           1050M          |    70.45GB   | 
-
+To run:
 
 ```bash
 launch python3 \
@@ -22,11 +54,25 @@ launch python3 \
   --model='meta-llama/llama-3.3-70b-instruct'
 ```
 
-
-
-
+> [!WARNING]
+> I believe this approach is still not finished because I expect there will be
+> naming mismatches between the layers of the HF model (now saved in our ZeRO
+> checkpoint) and what our MDS model expects.
+> 
+> This requires further testing to confirm, but we are now able to successfully
+> convert the 70B model to a ZeRO checkpoint.
 
 ## Estimate Memory Needs for Llama-3.3-70B-Instruct
+
+Deepspeed provides a nice mechanism for determining the memory needs of a model.
+
+We provide below the summary for the Llama-3.3-70B-Instruct model of interest.
+
+|       Model Name       | Model Size | Model Parameters | Largest Layer Parameters | Memory Needed |
+|:----------------------:|:----------:|:----------------:|:------------------------:|:-------------:|
+| Llama-3.3-70B-Instruct |     70B    |      69503M      |           1050M          |    70.45GB   | 
+
+
 
 ```bash
 $ python3 -c 'from transformers import AutoModel; \
