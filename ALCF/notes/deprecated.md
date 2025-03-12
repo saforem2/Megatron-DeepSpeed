@@ -1,6 +1,6 @@
 # Deprecated
 
-This contains the (now deprecated) contents of the [`ALCF/README.md`](ALCF/README.md) file.
+This contains the (now deprecated) contents from the [`ALCF/README.md`](ALCF/README.md) file.
 
 To launch on {`Polaris`, `Aurora`, `Sunspot`} @ [ALCF](https://alcf.anl.gov):
 
