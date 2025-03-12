@@ -44,7 +44,7 @@
     1. 🍋 [saforem2 / `ezpz`](https://github.com/saforem2/ezpz):
 
        ```bash
-       python3 -m pip install "https://github.com/saforem2/ezpz" --require-virtualenv
+       python3 -m pip install "git+https://github.com/saforem2/ezpz" --require-virtualenv
        ```
 
     1. [microsoft / `DeepSpeed`](https://github.com/microsoft/DeepSpeed):
