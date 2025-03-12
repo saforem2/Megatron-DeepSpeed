@@ -61,6 +61,9 @@
     PBS_O_WORKDIR=$(pwd) bash train_aGPT_7B.sh
     ```
 
+    This will default to using the default AuroraGPT-7B architecture with the
+    full [Dolma (v1.7)](https://huggingface.co/datasets/allenai/dolma) dataset.
+
     <details closed><summary>[Overridable Options]:</summary>
 
     This is a simple subset of the overridable options.
