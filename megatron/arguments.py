@@ -810,6 +810,27 @@ def _add_regularization_args(parser):
                        help='Momentum factor for sgd')
 
 
+
+
+    group.add_argument('--muon-momentum', type=float, default=0.95,
+                       help='Momentum factor for Muon ')
+    group.add_argument('--muon-nesterov', type=bool, default=True,
+                       help='Whether to use Nesterov in the internal SGD')
+    group.add_argument('--muon-ns-steps', type=int, default=6,
+                       help='The number of Newton-Schulz iterations to run')
+    group.add_argument('--muonadamw-beta1', type=float, default=0.9,
+                       help='beta1 for internal adamw')
+    group.add_argument('--muonadamw-beta2', type=float, default=0.999,
+                       help='beta2 for internal adamw')
+    group.add_argument('--muonadamw-eps', type=float, default=1e-12,
+                       help='epsilon for internal adamw')
+
+
+
+
+
+
+
     return parser
 
 
@@ -979,7 +1000,8 @@ def _add_training_args(parser):
             'sgd',
             'sgdschedulefree',
             'sophiag',
-            'adopt'
+            'adopt',
+            'muon'
         ],
         help='Optimizer function'
     )

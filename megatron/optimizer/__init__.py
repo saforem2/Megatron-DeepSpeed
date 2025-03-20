@@ -371,6 +371,32 @@ def get_megatron_optimizer(
             eps = args.adam_eps,
             weight_decay=args.weight_decay
         )
+     #--- muon  -----------------------------------------------
+    elif str(args.optimizer).lower() == 'muon':
+        from .muon import Muon
+        
+        muon_param_groups = [
+        group for group in param_groups
+            if any(  # Use `any()` instead of `all()` to check at least one parameter
+            p.ndim >= 2 and not (p.ndim == 2 and p.shape[0] > 10000)
+            for p in group["params"]
+            )
+        ]
+
+        adamw_param_groups = [group for group in param_groups if group not in muon_param_groups]
+
+        optimizer = Muon(
+            lr=args.lr,
+            wd=args.weight_decay,
+            all_params=param_groups,
+            muon_params=muon_param_groups,
+            momentum=args.muon_momentum,
+            nesterov=args.muon_nesterov,
+            ns_steps=args.muon_ns_steps,
+            adamw_params=adamw_param_groups,
+            adamw_betas=(args.muonadamw_beta1,args.muonadamw_beta2),
+            adamw_eps=args.muonadamw_eps
+        )
     else:
         raise TypeError(f'{args.optimizer} optimizer is not supported.')
     assert optimizer is not None
