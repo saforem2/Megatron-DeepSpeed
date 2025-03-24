@@ -683,9 +683,10 @@ def setup_model_and_optimizer(
         if teacher:
             optimizer = None
         else:
+
             optimizer = get_megatron_optimizer(
                 model, no_wd_decay_cond, scale_lr_cond, lr_mult
-            )
+                )
         # opt_param_scheduler is the old lr_scheduler plus weight decay scheduling
         opt_param_scheduler = get_optimizer_param_scheduler(optimizer)
     if args.deepspeed:

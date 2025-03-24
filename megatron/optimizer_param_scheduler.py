@@ -120,6 +120,44 @@ class OptimizerParamScheduler(object):
                 lr = self.max_lr * warmup_tokens ** 0.5 / (num_tokens ** 0.5)
             return max(self.min_lr, lr)
 
+        # --- Infinite Decay Options ---
+        elif self.lr_decay_style in ["infinite_cosine", "infinite_inv_sqrt"]:
+        # Compute iterations after warmup. (Using steps if lr_decay_tokens is None,
+        # otherwise tokens.)
+            if self.lr_decay_tokens is None:
+                num_iters_ = self.num_steps - self.lr_warmup_steps
+            else:
+                num_iters_ = self.num_tokens - self.lr_warmup_tokens
+
+            if num_iters_ <= self.cooldown_iters:
+                if self.lr_decay_style == "infinite_cosine":
+                    lr = self.constant_lr + (
+                        (self.start_lr - self.constant_lr)
+                        / 2.0
+                        * (math.cos(math.pi * num_iters_ / self.cooldown_iters) + 1)
+                    )
+                else:  # infinite_inv_sqrt
+                    def inv_f(t):
+                        return (1 / math.sqrt(1 + (self.timescale * t))) - 1
+                    lr = self.start_lr + (
+                        (self.constant_lr - self.start_lr)
+                        / inv_f(1)
+                        * inv_f(num_iters_ / self.cooldown_iters)
+                    )
+            else:
+                num_iters_ = num_iters_ - self.cooldown_iters
+                if num_iters_ <= self.constant_iters:
+                # Stay constant for constant_iters
+                    lr = self.constant_lr
+                else:
+                # Exponential decay from constant_lr to min_lr.
+                # Note: self.warmup_iter is assumed to be defined (similar to lr_warmup_steps).
+                    end_iter_ = self.end_iter - self.warmup_iter - self.cooldown_iters - self.constant_iters
+                    num_iters_ = num_iters_ - self.constant_iters
+                    exp_factor = -math.log(self.min_lr / self.constant_lr) / end_iter_
+                    lr = self.constant_lr * math.exp(-exp_factor * num_iters_)
+            return max(lr, self.min_lr)
+
         if self.lr_decay_tokens is None:
             num_steps_ = self.num_steps - self.lr_warmup_steps
             decay_steps_ = self.lr_decay_steps - self.lr_warmup_steps
