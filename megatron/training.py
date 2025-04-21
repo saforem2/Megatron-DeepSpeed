@@ -562,12 +562,19 @@ def get_optimizer_param_scheduler(optimizer):
     if args.train_iters:
         if args.lr_decay_iters is None:
             args.lr_decay_iters = args.train_iters
+           
         lr_decay_steps = args.lr_decay_iters * args.global_batch_size
         wd_incr_steps = args.train_iters * args.global_batch_size
         if args.lr_warmup_fraction is not None:
             lr_warmup_steps = args.lr_warmup_fraction * lr_decay_steps
         else:
             lr_warmup_steps = args.lr_warmup_iters * args.global_batch_size
+
+        if args.lr_constant_fraction is not None:
+            lr_constant_steps = args.lr_constant_fraction * lr_decay_steps
+        else:
+            lr_constant_steps = args.lr_constant_iters * args.global_batch_size
+        lr_cooldown_steps = args.lr_cooldown_fraction * lr_decay_steps
     # Sample-based training.
     elif args.train_samples:
         # We need to set training iters for later use. Technically
@@ -582,6 +589,11 @@ def get_optimizer_param_scheduler(optimizer):
             lr_warmup_steps = args.lr_warmup_fraction * lr_decay_steps
         else:
             lr_warmup_steps = args.lr_warmup_samples
+        if args.lr_constant_fraction is not None:
+            lr_constant_steps = args.lr_constant_fraction * lr_decay_steps
+        else:
+            lr_constant_steps = args.lr_constant_samples
+        lr_cooldown_steps = args.lr_cooldown_fraction * lr_decay_steps
     else:
         raise Exception("either train-iters or train-samples should be provided.")
 
@@ -596,6 +608,9 @@ def get_optimizer_param_scheduler(optimizer):
         end_wd=args.end_weight_decay,
         wd_incr_steps=wd_incr_steps,
         wd_incr_style=args.weight_decay_incr_style,
+        constant_lr=args.constant_lr,
+        lr_constant_steps=lr_constant_steps,
+        lr_cooldown_steps=lr_cooldown_steps,
         use_checkpoint_opt_param_scheduler=args.use_checkpoint_opt_param_scheduler,
         override_opt_param_scheduler=args.override_opt_param_scheduler,
     )
