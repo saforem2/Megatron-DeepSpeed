@@ -101,18 +101,18 @@ setup() {
     # Identify machine we're on
     get_machine || exit
     ##########################################################################
-    # ezpz_setup will:
-    # 1. Setup python
-    #     - load base conda
-    #     - (if necessary) create virtual environment on top of base conda
-    #     - activate virtual environment from ^
-    # 2. Install ezpz (if needed)
-    # 3. Parse PBS_* environment variables to determine:
-    #     - NHOSTS (by counting number of lines in $PBS_NODEFILE)
-    #     - NGPU_PER_HOST (by magic)
-    #     - NGPUS (= NHOSTS * NGPU_PER_HOST)
-    # 4. Use these (^) to build our launch command
-    ezpz_setup || exit
+    # # ezpz_setup will:
+    # # 1. Setup python
+    # #     - load base conda
+    # #     - (if necessary) create virtual environment on top of base conda
+    # #     - activate virtual environment from ^
+    # # 2. Install ezpz (if needed)
+    # # 3. Parse PBS_* environment variables to determine:
+    # #     - NHOSTS (by counting number of lines in $PBS_NODEFILE)
+    # #     - NGPU_PER_HOST (by magic)
+    # #     - NGPUS (= NHOSTS * NGPU_PER_HOST)
+    # # 4. Use these (^) to build our launch command
+    # ezpz_setup || exit
     ##########################################################################
     install_dependencies
     # Set command line arguments to pass to `"${EXEC}"`
@@ -126,7 +126,7 @@ setup() {
     set_args || exit
     # Ensure executable exists in expected path
     check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
-    dfl="${DATA_FILE_LIST:-"${PBS_O_WORKDIR}/ALCF/data-lists/$(get_machine_name)/dolma.txt"}"
+    dfl="${DATA_FILE_LIST:-"${PBS_O_WORKDIR:-${HERE}}/ALCF/data-lists/$(get_machine_name)/dolma.txt"}"
     # Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
     tok="${TOKENIZER_TYPE:-Llama2Tokenizer}"
     setup_tokenizer_and_data "${tok}" "${dfl}" || exit
@@ -796,30 +796,27 @@ make_ds_hostfile() {
 # 3. Call `_ezpz_install` (from `Megatron-DeepSpeed/ALCF/helpers.sh`):
 #    - Install ezpz from `"${WORKING_DIR}/depz/ezpz/"`
 ###########################################
-ezpz_setup() {
-    # setup_alcf "$@"
-    # file=$(mktemp)
-    # curl -Ls https://raw.githubusercontent.com/saforem2/ezpz/main/src/ezpz/bin/getjobenv > "${file}"
-    # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
-    ezdir="${WORKING_DIR}/deps/ezpz"
-    if [[ -d "${ezdir}" ]]; then
-        echo "Found ezpz in ${ezdir}"
-    else
-        mkdir -p "$(dirname "${ezdir}")"
-        git clone https://github.com/saforem2/ezpz "${ezdir}"
-    fi
-    # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
-    source "${ezdir}/src/ezpz/bin/utils.sh" || exit
-    ezpz_setup_python
-    ezpz_setup_job "$@"
-    ezpz_pip_loc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
-    if [[ -z "${ezpz_pip_loc:-}" ]]; then
-        printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
-        python3 -m pip install -e "${ezdir}" --require-virtualenv
-    else
-        printf "[ezpz_install] Found ezpz @ %s\n" "${ezpz_pip_loc}"
-    fi
-}
+# ezpz_setup() {
+#     source <()
+#     ezdir="${WORKING_DIR}/deps/ezpz"
+#     if [[ -d "${ezdir}" ]]; then
+#         echo "Found ezpz in ${ezdir}"
+#     else
+#         mkdir -p "$(dirname "${ezdir}")"
+#         git clone https://github.com/saforem2/ezpz "${ezdir}"
+#     fi
+#     # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
+#     source "${ezdir}/src/ezpz/bin/utils.sh" || exit
+#     ezpz_setup_python
+#     ezpz_setup_job "$@"
+#     ezpz_pip_loc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
+#     if [[ -z "${ezpz_pip_loc:-}" ]]; then
+#         printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
+#         python3 -m pip install -e "${ezdir}" --require-virtualenv
+#     else
+#         printf "[ezpz_install] Found ezpz @ %s\n" "${ezpz_pip_loc}"
+#     fi
+# }
 
 #######################################################################
 # ezpz_test: Run simple test to make sure all nodes in working order
