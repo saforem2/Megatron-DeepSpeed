@@ -19,7 +19,8 @@ train_aGPT() {
     # 3. source `ezpz/bin/uitils.sh` and setup {job, python} environment:
     source <(curl 'https://raw.githubusercontent.com/saforem2/ezpz/refs/heads/main/src/ezpz/bin/utils.sh') 
 
-    if [[ "${HERE}" != "${PBS_O_WORKDIR}" ]]; then
+    if [[ "${HERE}" != "${PBS_O_WORKDIR:-}" ]]; then
+        export PBS_O_WORKDIR="${HERE}"
         printf "[!! %s] WARNING: Current working directory (%s) does not match PBS_O_WORKDIR (%s)\n" "$(printRed "WARNING")" "${HERE}" "${PBS_O_WORKDIR}"
         printf "[!! %s] This may cause issues with the job submission.\n" "$(printRed "WARNING")"
         printf "Setting PBS_O_WORKDIR to %s and continuing...\n" "${HERE}"
@@ -40,7 +41,8 @@ train_aGPT() {
     printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
 
     # 6. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
-    eval "${run_cmd[*]}" |& tee -a "${OUTPUT_LOG}"
+    # eval "${run_cmd[*]}" |& tee -a "${OUTPUT_LOG}"
+    bash -c "${run_cmd[*]}" |& tee -a "${OUTPUT_LOG}"
 }
 
 train_aGPT "$@"
