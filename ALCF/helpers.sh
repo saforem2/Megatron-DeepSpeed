@@ -20,6 +20,13 @@
 #    command for launching across all GPUs in our active PBS job.
 ###############################################################################
 
+###############################################################################
+# Source:
+# [`ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
+source <(curl -L https://bit.ly/ezpz-utils) || exit
+ezpz_setup_job >/dev/null || exit
+###############################################################################
+
 ##################
 # helpers_main
 #
@@ -65,41 +72,30 @@ helpers_main() {
 #
 # - Explicitly, this will:
 #    - Identify the machine we're on
-#
 #    - Setup `python`
 #       1. Load `conda`
 #       2. Setup `venv` on top of `conda`
-#
 #    - Ensure all dependencies are installed
-#
 #    - Clone + Install [`saforem2/ezpz`](https://github.com/saforem2/ezpz)
 #       - Source [`ezpz/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
 #           - This provides `{ezpz_setup_python, ezpz_setup_job}` (called below)
-#
 #    - Set runtime options
-#
 #    - Build `deepspeed_config.json`
-#
 #    - Build {logs, checkpoints, etc} dirs, named according to specifics of
 #       current run
-#
 #    - Specify additional `deepspeed` arguments
-#
 #    - Ensure executable exists at expected path
-#
 #    - Setup data + tokenizer via `TOKENIZER_TYPE`
-#
 #    - Print job info
-#
 #    - Save `.env` to `CKPT_DIR` for safe keeping
-#
 #    - Check that we're not already running, and if so, exit.
-#
 #    - Setup run command to be executed.
 ##############################################################################
 setup() {
     # Identify machine we're on
-    get_machine || exit
+    mn=$(ezpz_get_machine_name)
+    export MACHINE="${mn}"
+    # get_machine || exit
     ##########################################################################
     # # ezpz_setup will:
     # # 1. Setup python
@@ -126,7 +122,7 @@ setup() {
     set_args || exit
     # Ensure executable exists in expected path
     check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
-    dfl="${DATA_FILE_LIST:-"${PBS_O_WORKDIR:-${HERE}}/ALCF/data-lists/$(get_machine_name)/dolma.txt"}"
+    dfl="${DATA_FILE_LIST:-"${PBS_O_WORKDIR:-${HERE}}/ALCF/data-lists/$(ezpz_get_machine_name)/dolma.txt"}"
     # Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
     tok="${TOKENIZER_TYPE:-Llama2Tokenizer}"
     setup_tokenizer_and_data "${tok}" "${dfl}" || exit
@@ -216,7 +212,7 @@ setup_run_cmd() {
             "--tensorboard-dir ${TBDIR}"
         )
     fi
-    dfl_fallback="${DATA_FILE_LIST:-${PBS_O_WORKDIR}/ALCF/data-lists/$(get_machine_name)/dolma.txt}"
+    dfl_fallback="${DATA_FILE_LIST:-${PBS_O_WORKDIR}/ALCF/data-lists/$(ezpz_get_machine_name)/dolma.txt}"
 
     train_args=()
     if [[ -z "${OVERRIDE_CKPT_OPT_PARAM:-}" ]]; then
@@ -297,60 +293,60 @@ save_dotenv() {
     fi
 }
 
-######################################################################
-# get_machine_name:
+#######################################################################
+## get_machine_name:
+##
+## Return current machine name, as lowercase string
+##
+## Example:
+##   ```bash
+##   $ machine_name=$(get_machine_name)
+##   $ echo "machine_name: ${machine_name}"
+##   ```
+#######################################################################
+#get_machine_name() {
+#    if [[ $(hostname) == x4* || $(hostname) == aurora* ]]; then
+#        machine="aurora"
+#    elif [[ $(hostname) == x1* || $(hostname) == uan* ]]; then
+#        machine="sunspot"
+#    elif [[ $(hostname) == x3* || $(hostname) == polaris* ]]; then
+#        if [[ "${PBS_O_HOST}" == sirius* ]]; then
+#            machine="sirius"
+#        else
+#            machine="polaris"
+#        fi
+#    elif [[ $(hostname) == sophia* ]]; then
+#        machine="sophia"
+#    elif [[ $(hostname) == nid* ]]; then
+#        machine="perlmutter"
+#    else
+#        machine=$(hostname)
+#    fi
+#    echo "${machine}"
+#}
 #
-# Return current machine name, as lowercase string
-#
-# Example:
-#   ```bash
-#   $ machine_name=$(get_machine_name)
-#   $ echo "machine_name: ${machine_name}"
-#   ```
-######################################################################
-get_machine_name() {
-    if [[ $(hostname) == x4* || $(hostname) == aurora* ]]; then
-        machine="aurora"
-    elif [[ $(hostname) == x1* || $(hostname) == uan* ]]; then
-        machine="sunspot"
-    elif [[ $(hostname) == x3* || $(hostname) == polaris* ]]; then
-        if [[ "${PBS_O_HOST}" == sirius* ]]; then
-            machine="sirius"
-        else
-            machine="polaris"
-        fi
-    elif [[ $(hostname) == sophia* ]]; then
-        machine="sophia"
-    elif [[ $(hostname) == nid* ]]; then
-        machine="perlmutter"
-    else
-        machine=$(hostname)
-    fi
-    echo "${machine}"
-}
-
-get_machine() {
-    machine=$(hostname)
-    if [[ $(hostname) == x4* ]]; then
-        machine="aurora"
-    elif [[ $(hostname) == x1* ]]; then
-        machine="sunspot"
-    elif [[ $(hostname) == x3* ]]; then
-        if [[ "${PBS_O_HOST}" == sirius* ]]; then
-            machine="sirius"
-        else
-            machine="polaris"
-        fi
-    elif [[ $(hostname) == sophia* ]]; then
-        machine="sophia"
-    elif [[ $(hostname) == nid* ]]; then
-        machine="perlmutter"
-    else
-        echo "Unknown MACHINE. Setting MACHINE to $(hostname) and continuing..."
-    fi
-    export MACHINE="${machine}"
-    printf "Running on: %s\n" "$(printBlue "${MACHINE}")"
-}
+#get_machine() {
+#    machine=$(hostname)
+#    if [[ $(hostname) == x4* ]]; then
+#        machine="aurora"
+#    elif [[ $(hostname) == x1* ]]; then
+#        machine="sunspot"
+#    elif [[ $(hostname) == x3* ]]; then
+#        if [[ "${PBS_O_HOST}" == sirius* ]]; then
+#            machine="sirius"
+#        else
+#            machine="polaris"
+#        fi
+#    elif [[ $(hostname) == sophia* ]]; then
+#        machine="sophia"
+#    elif [[ $(hostname) == nid* ]]; then
+#        machine="perlmutter"
+#    else
+#        echo "Unknown MACHINE. Setting MACHINE to $(hostname) and continuing..."
+#    fi
+#    export MACHINE="${machine}"
+#    printf "Running on: %s\n" "$(printBlue "${MACHINE}")"
+#}
 
 check_and_kill_if_running() {
     RUNNING_PIDS=$(lsof -i:29500 -Fp | head -n 1 | sed 's/^p//')
@@ -397,6 +393,10 @@ printJobInfo() {
 # will launch with `deepspeed` instead of `mpiexec`.
 #############################################################################
 setupLauncher() {
+    shell_type=$(basename "${SHELL}")
+    if [[ "${shell_type}" == "bash" ]]; then
+        shopt -s expand_aliases
+    fi
     if [[ "$#" == 1 ]]; then
         local dist_launcher="$1"
     else
@@ -410,8 +410,13 @@ setupLauncher() {
         make_ds_hostfile || exit
         export LAUNCHER="deepspeed --hostfile $hfds --launcher MPICH ${EXEC}"
     else
+        # source <(curl -L https://bit.ly/ezpz-utils) && ezpz_setup_job
+        # echo "ezpz_launch: $(which ezpz_launch)"
+        # export -f ezpz_launch
+        # export LAUNCHER="ezpz_launch) $(which python3) -Wignore ${EXEC}"
+
         if [[ -n "${DIST_LAUNCH}" ]]; then
-            mn=$(get_machine_name)
+            mn=$(ezpz_get_machine_name)
             if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
                 LAUNCHER="${DIST_LAUNCH} --pmi=pmix --genvall $(which python3) -Wignore ${EXEC}"
             elif [[ "${mn}" == "sophia" ]]; then
@@ -548,7 +553,8 @@ set_ccl_vars_on_aurora() {
     export CCL_PROCESS_LAUNCHER=pmix # Required by Aurora mpich
     export FI_PROVIDER=cxi           # Required by Aurora mpich
     export PALS_PMI=pmix             # Required by Aurora mpich
-    export CCL_ATL_TRANSPORT=mpi     # Required by Aurora mpich
+    # export CCL_ATL_TRANSPORT=mpi     # Required by Aurora mpich
+    export CCL_ATL_TRANSPORT=ofi # [SF]: Changed 04/30/2025
     export TORCH_LLM_ALLREDUCE=1
     export CCL_SYCL_ESIMD=1
     export CCL_ALLGATHERV_MEDIUM_SIZE_THRESHOLD=0 # Required by current oneCCL (MLSL-2881)
@@ -576,7 +582,7 @@ setParams() {
     # ---- [Parallelism Settings] -------------------------------------------+
     # ------ [Aurora] -------||------ [SunSpot] -------------
     # if [[ $(hostname) == x4* || $(hostname) == x1* ]]; then
-    mn=$(get_machine_name)
+    mn=$(ezpz_get_machine_name)
     if [[ "${mn}" == "aurora" || "${mn}" == "sunspot" ]]; then
         TP=${TP:-1} # TP = 1
         export SAVE_INTERVAL="${SAVE_INTERVAL:-50}"
@@ -616,9 +622,9 @@ setParams() {
     # ---- [Sophia] ----------------------
     elif [[ "${mn}" == sophia* ]]; then
         # export LAUNCH_CMD="${LAUNCH_CMD:-deepspeed}"
-        TP=${TP:-1}               # TP = 2
-        export NCCL=${NCCL:-nccl} # NCCL
-        export BE="${NCCL}"       # BE = NCCL
+        TP=${TP:-1}                                # TP = 2
+        export NCCL=${NCCL:-nccl}                  # NCCL
+        export BE="${NCCL}"                        # BE = NCCL
         export DTYPE=${DTYPE:-bf16}                # DTYPE: FP16
         export GRAD_ACC_STEPS=${GRAD_ACC_STEPS:-8} # GRADIENT_ACC_STEPS
         export MICRO_BATCH="${MICRO_BATCH:-$(get_batch_size_on_polaris)}"
@@ -951,7 +957,7 @@ install_dependencies() {
     echo "[install_dependencies] Ensuring all dependencies from ${depsfile} installed..."
     python3 -m pip install -r "${depsfile}" --require-virtualenv 1>/dev/null
     if [[ ! -x "$(command -v deepspeed)" ]]; then
-        mn=$(get_machine_name)
+        mn=$(ezpz_get_machine_name)
         # if [[ "${mn}" == aurora* || "${mn}" == sunspot* ]]; then
         #     install_deepspeed_for_xpu || exit
         # fi
@@ -1050,7 +1056,7 @@ setup_tokenizer_and_data() {
     if [[ ${tok} == gpt* || ${tok} == GPT* ]]; then
         export TOKENIZER_TYPE="GPT2"
         _tokenizer_flags+=("--tokenizer-type GPT2BPETokenizer")
-        machine=$(get_machine_name)
+        machine=$(ezpz_get_machine_name)
         if [[ ${machine} == "polaris" || ${machine} == "sophia" ]]; then
             export DATA_PARENT="${DATA_PARENT:-/eagle/argonne_tpc/foremans/projects/argonne-lcf/Megatron-DeepSpeed/dataset}"
         elif [[ ${machine} == "sunspot" ]]; then
@@ -1094,7 +1100,7 @@ setup_tokenizer_and_data() {
 ###############################################
 setData() { # ------------------------[dfl: abbrv. for DATA_FILE_LIST]
     ####### [Set DATA_FILE_LIST_FALLBACK based on current machine] #############
-    mn=$(get_machine_name)
+    mn=$(ezpz_get_machine_name)
     dfl_fallback="${WORKING_DIR}/ALCF/data-lists/${mn}/dolma.txt"
     ############################################################################
     # set `dfl` to `dfl_fallback` if not passed as an argument,
@@ -1334,31 +1340,6 @@ $flops_profiler
 }
 EOT
 }
-
-# #####################
-# # train
-# #####################
-# train() {
-#     # 1. Navigate into `$PBS_O_WORKDIR` <-- [should be Megatron-Deepspeed]
-#     cd "${PBS_O_WORKDIR}" || exit
-#     HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
-#     # 2. source `ALCF/helpers.sh` <-- [should be ./ALCF/helpers.sh]
-#     source "${HERE}/ALCF/helpers.sh" || exit
-#     # 3. call `setup` from `./ALCF/helpers.sh`
-#     # export DATA_FILE_LIST="${HERE}/ALCF/data-lists/$(get_machine_name)/books.txt"
-#     setup || exit
-#     # 4. Take custom args
-#     export custom_args=" $@"
-#     # 5. Update ${run_cmd} (from setup ALCF/helpers.sh) with ${custom_args}
-#     export run_cmd="${run_cmd} ${custom_args}"
-#     # 6. Add "${run_cmd}" to output log
-#     echo "${run_cmd}" | tee -a "${OUTPUT_LOG}"
-#     # 7. Tell user where to find output
-#     printf "[!! %s] View output at:\n %s\n" "$(printBlue "NOTE")" "$(printYellow "${OUTPUT_LOG}")" | tee -a "${OUTPUT_LOG}"
-#     # 8. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
-#     eval "${run_cmd}" |& tee -a "${OUTPUT_LOG}"
-#     set +x
-# }
 
 ###############################################
 # Helper functions for printing colored text
