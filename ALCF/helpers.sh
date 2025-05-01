@@ -846,12 +846,12 @@ ezpz_test() {
 saveDSenv() {
     echo "Saving {PATH, LD_LIBRARY_PATH, htt{p,ps}_proxy, CFLAGS, PYTHONUSERBASE} to .deepspeed_env"
     {
-        echo "PATH=${PATH}"
-        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+        echo "PATH=${PATH:-}"
+        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
         echo "http_proxy=${http_proxy:-}"
         echo "https_proxy=${https_proxy:-}"
-        echo "CFLAGS=${CFLAGS}"
-        echo "PYTHONUSERBASE=$PYTHONUSERBASE"
+        echo "CFLAGS=${CFLAGS:-}"
+        echo "PYTHONUSERBASE=${PYTHONUSERBASE:-}"
     } >.deepspeed_env
 }
 
