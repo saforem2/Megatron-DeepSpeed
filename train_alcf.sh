@@ -26,8 +26,13 @@ train_aGPT() {
         printf "Setting PBS_O_WORKDIR to %s and continuing...\n" "${HERE}"
     fi
 
-    ezpz_setup_env
-    python3 -m pip install "git+https://github.com/saforem2/ezpz"
+    ezpz_setup_env || exit
+    if  command -v "ezpz-test"; then
+        printf "[!! %s] ezpz is already installed.\n" "$(printGreen "INFO")"
+    else
+        printf "[!! %s] ezpz is not installed. Installing...\n" "$(printRed "WARNING")"
+        python3 -m pip install "git+https://github.com/saforem2/ezpz"
+    fi
 
     # 2. source `ALCF/helpers.sh` for Megatron-DeepSpeed setup
     source "${HERE}/ALCF/helpers.sh" || exit
@@ -42,7 +47,13 @@ train_aGPT() {
 
     # 6. Evaluate ${run_cmd} and append outputs to ${OUTPUT_LOG}
     # eval "${run_cmd[*]}" |& tee -a "${OUTPUT_LOG}"
-    bash -c "${run_cmd[*]}" |& tee -a "${OUTPUT_LOG}"
+    if [[ "${DEBUG:-}" ]]; then
+        set -x
+        bash -c "${run_cmd[*]}" |& tee -a "${OUTPUT_LOG}"
+        set +x
+    else
+        bash -c "${run_cmd[*]}" |& tee -a "${OUTPUT_LOG}"
+    fi
 }
 
 train_aGPT "$@"
