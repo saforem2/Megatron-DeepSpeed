@@ -27,12 +27,13 @@ train_aGPT() {
     fi
 
     ezpz_setup_env || exit
-    if  command -v "ezpz-test"; then
-        printf "[!! %s] ezpz is already installed.\n" "$(printGreen "INFO")"
-    else
-        printf "[!! %s] ezpz is not installed. Installing...\n" "$(printRed "WARNING")"
-        python3 -m pip install "git+https://github.com/saforem2/ezpz"
-    fi
+
+    # if  command -v "ezpz-test"; then
+    #     printf "[!! %s] ezpz is already installed.\n" "$(printGreen "INFO")"
+    # else
+    #     printf "[!! %s] ezpz is not installed. Installing...\n" "$(printRed "WARNING")"
+    #     python3 -m pip install "git+https://github.com/saforem2/ezpz"
+    # fi
 
     # 2. source `ALCF/helpers.sh` for Megatron-DeepSpeed setup
     source "${HERE}/ALCF/helpers.sh" || exit
