@@ -1134,7 +1134,10 @@ def _add_learning_rate_args(parser):
     group.add_argument('--lr-cooldown-fraction', type=float, default=0.65,
                        help='fraction -(iters/samples) to use '
                        'for cooldownt phase (as a float)')
-    
+    group.add_argument('--lr-finder', action='store_true', 
+                   help='Run learning rate finder mode for 10% of training data then exit')
+
+
     group.add_argument('--warmup', type=int, default=None,
                        help='Old lr warmup argument, do not use. Use one of the'
                        '--lr-warmup-* arguments above')

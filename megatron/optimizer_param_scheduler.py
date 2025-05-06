@@ -27,7 +27,6 @@ class OptimizerParamScheduler(object):
         self.constant_lr = constant_lr
         assert self.min_lr >= 0.0
         assert self.max_lr >= self.min_lr
-        assert self.constant_lr <= self.max_lr
 
         self.lr_warmup_steps = lr_warmup_steps
         self.num_steps = 0
@@ -138,6 +137,7 @@ class OptimizerParamScheduler(object):
         # Compute iterations after warmup. (Using steps if lr_decay_tokens is None,
         # otherwise tokens.)
             assert self.constant_lr > self.min_lr
+            assert self.constant_lr <= self.max_lr
             delta_lr =  (self.max_lr - self.constant_lr)
             if self.lr_decay_tokens is None:
                 num_steps_ = self.num_steps - self.lr_warmup_steps
