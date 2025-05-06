@@ -20,6 +20,14 @@
 #    command for launching across all GPUs in our active PBS job.
 ###############################################################################
 
+
+###############################################################################
+# Source:
+# [`ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
+source <(curl -L https://bit.ly/ezpz-utils) || exit
+ezpz_setup_job >/dev/null || exit
+###############################################################################
+
 ##################
 # helpers_main
 #
@@ -141,38 +149,8 @@ setup() {
     setup_run_cmd "$@" || exit
 }
 
-#####################################################
-# setup_run_cmd
-#
-# Build run command to be executed.
-#####################################################
-setup_run_cmd() {
-    ##############################
-    # take in additional arguments
-    # and append them directly to
-    # the end of the `run_cmd`
-    # custom_args="$@"
-    custom_args=("$@")
-    ##############################
-    #### Make it easy to track experiments by date ###################
-    year="$(date "+%Y")"
-    month="$(date "+%m")"
-    day="$(date "+%Y-%m-%d")"
-    today="$(date "+%Y-%m-%d")" # kept for backwards compatibility
-    started_at="$(date "+%Y-%m-%d-%H%M%S")"
-    export YEAR="${year}"
-    export MONTH="${month}"
-    export DAY="${day}"
-    export TODAY="${today}"
-    export STARTED_AT="${started_at}"
-    ##################################################################
-    # NOTE: to launch with DeepSpeed instead of mpiexec:
-    # `export LAUNCH_WITH=deepspeeed && bash train_llama_alcf.sh`
-    ##################################################################
-    setupLauncher "${LAUNCH_WITH:-MPICH}" || exit
-    export data_cache_path="${CKPT_DIR}/${DATA_CACHE_PATH}" && mkdir -p "${data_cache_path}"
-    printf "\n"
-    echo "Using data_cache_path: ${data_cache_path}"
+
+get_training_args() {
     ##################################################################
     # WARN: to disable Llama-type architectures, toggle via:
     # `NO_LLAMA=1 bash train_llama_alcf.sh`
@@ -273,11 +251,49 @@ setup_run_cmd() {
         "--data-file-list=${DATA_FILE_LIST:-${dfl_fallback}}"
     )
     # "--adam-eps ${ADAM_EPS:-0.00001}"
-    cache_dir="${PBS_O_WORKDIR}/.cache/"
-    mkdir -p "${cache_dir}"
-    targs_cache="${cache_dir}/train_args.txt"
-    for arg in "${train_args[@]}"; do echo "${arg}" >>"${targs_cache}"; done
+    echo "${train_args[@]}"
+}
+
+#####################################################
+# setup_run_cmd
+#
+# Build run command to be executed.
+#####################################################
+setup_run_cmd() {
+    ##############################
+    # take in additional arguments
+    # and append them directly to
+    # the end of the `run_cmd`
+    # custom_args="$@"
+    custom_args=("$@")
+    ##############################
+    #### Make it easy to track experiments by date ###################
+    year="$(date "+%Y")"
+    month="$(date "+%m")"
+    day="$(date "+%Y-%m-%d")"
+    today="$(date "+%Y-%m-%d")" # kept for backwards compatibility
+    started_at="$(date "+%Y-%m-%d-%H%M%S")"
+    export YEAR="${year}"
+    export MONTH="${month}"
+    export DAY="${day}"
+    export TODAY="${today}"
+    export STARTED_AT="${started_at}"
+    ##################################################################
+    # NOTE: to launch with DeepSpeed instead of mpiexec:
+    # `export LAUNCH_WITH=deepspeeed && bash train_llama_alcf.sh`
+    ##################################################################
+    setupLauncher "${LAUNCH_WITH:-MPICH}" || exit
+    export data_cache_path="${CKPT_DIR}/${DATA_CACHE_PATH}" && mkdir -p "${data_cache_path}"
+    train_args=("$(get_training_args)")
+    cache_dir="${WORKING_DIR}/.cache/"
+    if [[ ! -d "${cache_dir}" ]]; then
+        mkdir -p "${cache_dir}"
+    fi
+    targs_cache="${cache_dir}/train_args_${started_at}.txt"
+    for arg in "${train_args[@]}"; do echo "${arg}" >"${targs_cache}"; done
     export TRAIN_ARGS=("$(printf '%s\n' "${train_args[@]}" | sort)")
+    # printf "\n"
+    echo "Using data_cache_path: ${data_cache_path}"
     printf "Training Arguments: %s\n" "${TRAIN_ARGS[@]}"
     export run_cmd=("${LAUNCHER}" "${train_args[@]}")
 }
@@ -656,11 +672,14 @@ setParams() {
     fi
     export NGPU_PER_HOST="${NGPU_PER_HOST}"
     export WORLD_SIZE="${WORLD_SIZE:-$((NHOSTS * NGPU_PER_HOST))}"
-    if [[ "${WORLD_SIZE}" -gt 1 && "${mn}" == "aurora" ]]; then
-        #### [sam: 08/17/2024] ##########################################
-        # Use best set of CCL env vars from Gordon Bell runs on Aurora
-        set_ccl_vars_on_aurora
-    fi
+    #### [sam: 05/05/2025] #################################################
+    # NOTE: Commented out following release of frameworks-2025.0.0
+    # if [[ "${WORLD_SIZE}" -gt 12 && "${mn}" == "aurora" ]]; then
+    #     #### [sam: 08/17/2024] ###########################################
+    #     # Use best set of CCL env vars from Gordon Bell runs on Aurora
+    #     set_ccl_vars_on_aurora
+    # fi
+    ########################################################################
     # +---[Llama2 7B Config]--------------------------------------------------+
     # export MODEL_KEY="Llama-7B"
     export HEADS=${HEADS:-${NHEADS:-32}}             # NUMBER OF ATEN HEADS
@@ -840,12 +859,12 @@ ezpz_test() {
 saveDSenv() {
     echo "Saving {PATH, LD_LIBRARY_PATH, htt{p,ps}_proxy, CFLAGS, PYTHONUSERBASE} to .deepspeed_env"
     {
-        echo "PATH=${PATH}"
-        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+        echo "PATH=${PATH:-}"
+        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
         echo "http_proxy=${http_proxy:-}"
         echo "https_proxy=${https_proxy:-}"
-        echo "CFLAGS=${CFLAGS}"
-        echo "PYTHONUSERBASE=$PYTHONUSERBASE"
+        echo "CFLAGS=${CFLAGS:-}"
+        echo "PYTHONUSERBASE=${PYTHONUSERBASE:-}"
     } >.deepspeed_env
 }
 
@@ -1363,13 +1382,13 @@ EOT
 ###############################################
 # Helper functions for printing colored text
 ###############################################
-RESET="\e[0m"
-BLACK="\e[1;30m"
-RED="\e[1;31m"
-GREEN="\e[1;32m"
-YELLOW="\e[1;33m"
-BLUE="\e[1;34m"
-CYAN="\e[1;35m"
+# RESET="\e[0m"
+# BLACK="\e[1;30m"
+# RED="\e[1;31m"
+# GREEN="\e[1;32m"
+# YELLOW="\e[1;33m"
+# BLUE="\e[1;34m"
+# CYAN="\e[1;35m"
 # WHITE="\e[1;36m"
 
 printBlack() {
