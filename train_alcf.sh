@@ -3,7 +3,6 @@
 #PBS -A Aurora_Deployment
 #PBS -j oe
 
-# 1. Navigate into `$PBS_O_WORKDIR`
 HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
 GIT_BRANCH=$(git branch --show-current) && export GIT_BRANCH
 source <(curl -L https://bit.ly/ezpz-utils) || exit
@@ -15,7 +14,7 @@ if  command -v "ezpz-test"; then
 else
     log_message WARNING "${RED}✗${RESET} ezpz is not installed."
     log_message INFO "Installing ezpz..."
-    python3 -m pip install "git+https://github.com/saforem2/ezpz"
+    python3 -m pip install "git+https://github.com/saforem2/ezpz" || exit
 fi
 
 
@@ -55,8 +54,8 @@ train_aGPT() {
     fi
 }
 
-# add trap
+
+# Kill any existing MPI processes
+ezpz_kill_mpi || exit
+
 train_aGPT "$@"
-# pid=$(train_aGPT "$@")
-# trap 'kill -TERM "$pid"' TERM INT
-# wait "$pid"
