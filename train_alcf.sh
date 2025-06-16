@@ -4,30 +4,10 @@
 #PBS -j oe
 
 # 1. Navigate into `$PBS_O_WORKDIR`
-# cd "${PBS_O_WORKDIR}" || exit
 HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
 GIT_BRANCH=$(git branch --show-current) && export GIT_BRANCH
-
-# 3. source `ezpz/bin/uitils.sh` and setup {job, python} environment:
-# source <(curl 'https://raw.githubusercontent.com/saforem2/ezpz/refs/heads/main/src/ezpz/bin/utils.sh') 
-
-# if [[ "${HERE}" != "${PBS_O_WORKDIR:-}" ]]; then
-#     export PBS_O_WORKDIR="${HERE}"
-#     printf "[!! %s] WARNING: Current working directory (%s) does not match PBS_O_WORKDIR (%s)\n" "$(printRed "WARNING")" "${HERE}" "${PBS_O_WORKDIR}"
-#     printf "[!! %s] This may cause issues with the job submission.\n" "$(printRed "WARNING")"
-#     printf "Setting PBS_O_WORKDIR to %s and continuing...\n" "${HERE}"
-# fi
-# ezpz_setup_env || exit
-
-# source <(curl -L 'https://bit.ly/ezpz-utils') || exit
-NO_COLOR=1 source ../../saforem2/ezpz/src/ezpz/bin/utils.sh || exit
+source <(curl -L https://bit.ly/ezpz-utils) || exit
 NO_COLOR=1 ezpz_setup_env || exit
-# ezpz_setup_env || exit
-# if  ! command -v "ezpz_launch"; then
-#     ezpz_setup_env || exit
-# else
-#     log_message INFO ""
-# fi
 
 if  command -v "ezpz-test"; then
     log_message INFO "${GREEN}✓${RESET} ezpz is already installed."
