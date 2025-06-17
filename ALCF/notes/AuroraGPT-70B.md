@@ -24,27 +24,61 @@ PP="${NHOSTS}" \
   bash train_alcf.sh
 ```
 
-| Nodes  | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                          |
-| :----: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :----------------------------------------------------------------------------- |
-|   8    |  96  |  8  | 12  |  1  |  1  |  1  |  12 | True  |    OOM |   OOM |     OOM | [chocolate-meadow-2125](https://wandb.ai/aurora_gpt/AuroraGPT/runs/uhfkwmp2)   |
-|   8    |  96  |  8  |  6  |  2  |  1  |  1  |   6 | True  |  10.26 | 0.541 |  23.084 | [glamorous-darkness-2126](https://wandb.ai/aurora_gpt/AuroraGPT/runs/tdehvqey) |
-|   8    |  96  |  8  |  6  |  2  |  1  |  1  |   6 | False |  13.16 | 0.694 |  29.608 | [proud-frog-2153](https://wandb.ai/aurora_gpt/AuroraGPT/runs/ho1lwmer)         |
-|   8    |  96  |  8  |  6  |  2  |  1  |  2  |  12 | True  |  17.75 | 0.936 |  39.927 | [stoic-dragon-2127](https://wandb.ai/aurora_gpt/AuroraGPT/runs/2vay044x)       |
-|   8    |  96  |  8  |  6  |  2  |  1  |  4  |  24 | True  |  28.93 | 1.525 |  65.081 | [drawn-wildflower-2128](https://wandb.ai/aurora_gpt/AuroraGPT/runs/qjaqpbxg)   |
-|   8    |  96  |  8  |  6  |  2  |  1  |  8  |  48 | True  |  42.27 | 2.229 |  95.103 | [fresh-waterfall-2129](https://wandb.ai/aurora_gpt/AuroraGPT/runs/8m38fq95)    |
-|   8    |  96  |  8  |  6  |  2  |  1  | 16  |  96 | True  |  54.66 | 2.882 | 122.974 | [divine-waterfall-2130](https://wandb.ai/aurora_gpt/AuroraGPT/runs/on3m4isp)   |
-|   8    |  96  |  8  |  6  |  2  |  1  | 32  | 192 | True  |  64.02 | 3.376 | 144.037 | [wild-bee-2131](https://wandb.ai/aurora_gpt/AuroraGPT/runs/hitrbi6d)           |
-| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                                |
-|   16   | 192  | 16  | 12  |  1  |  1  |  1  |  12 |       |    5.6 | 0.594 |  12.695 | [fluent-surf-2118](https://wandb.ai/aurora_gpt/AuroraGPT/runs/0y250j0i)        |
-|   16   | 192  | 16  | 12  |  1  |  1  |  2  |  24 |       |  10.25 | 1.081 |  23.064 | [dulcet-salad-2119](https://wandb.ai/aurora_gpt/AuroraGPT/runs/5f1rdn9p)       |
-|   16   | 192  | 16  | 12  |  1  |  1  |  4  |  48 |       |  18.10 | 1.908 |  40.713 | [rose-blaze-2120](https://wandb.ai/aurora_gpt/AuroraGPT/runs/9obt1iqi)         |
-|   16   | 192  | 16  | 12  |  1  |  1  |  8  |  96 |       |  29.49 | 3.110 |  66.342 | [azure-jazz-2121](https://wandb.ai/aurora_gpt/AuroraGPT/runs/oaft4n5p)         |
-|   16   | 192  | 16  | 12  |  1  |  1  | 16  | 192 |       |    OOM |   OOM |     OOM | OOM                                                                            |
-| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                                |
-
 - **Note**:
   - `sps`: samples per second
   - `tpgps`: tokens per GPU per second
+
+
+|   Nodes   | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                          |
+| :-------: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :----------------------------------------------------------------------------- |
+| 8[^2125]  |  96  |  8  | 12  |  1  |  1  |  1  |  12 | True  |    OOM |   OOM |     OOM | [chocolate-meadow-2125](https://wandb.ai/aurora_gpt/AuroraGPT/runs/uhfkwmp2)   |
+| 8[^2126]  |  96  |  8  |  6  |  2  |  1  |  1  |   6 | True  |  10.26 | 0.541 |  23.084 | [glamorous-darkness-2126](https://wandb.ai/aurora_gpt/AuroraGPT/runs/tdehvqey) |
+| 8[^2153]  |  96  |  8  |  6  |  2  |  1  |  1  |   6 | False |  13.16 | 0.694 |  29.608 | [proud-frog-2153](https://wandb.ai/aurora_gpt/AuroraGPT/runs/ho1lwmer)         |
+| 8[^2127]  |  96  |  8  |  6  |  2  |  1  |  2  |  12 | True  |  17.75 | 0.936 |  39.927 | [stoic-dragon-2127](https://wandb.ai/aurora_gpt/AuroraGPT/runs/2vay044x)       |
+| 8[^2128]  |  96  |  8  |  6  |  2  |  1  |  4  |  24 | True  |  28.93 | 1.525 |  65.081 | [drawn-wildflower-2128](https://wandb.ai/aurora_gpt/AuroraGPT/runs/qjaqpbxg)   |
+| 8[^2129]  |  96  |  8  |  6  |  2  |  1  |  8  |  48 | True  |  42.27 | 2.229 |  95.103 | [fresh-waterfall-2129](https://wandb.ai/aurora_gpt/AuroraGPT/runs/8m38fq95)    |
+| 8[^2130]  |  96  |  8  |  6  |  2  |  1  | 16  |  96 | True  |  54.66 | 2.882 | 122.974 | [divine-waterfall-2130](https://wandb.ai/aurora_gpt/AuroraGPT/runs/on3m4isp)   |
+| 8[^2131]  |  96  |  8  |  6  |  2  |  1  | 32  | 192 | True  |  64.02 | 3.376 | 144.037 | [wild-bee-2131](https://wandb.ai/aurora_gpt/AuroraGPT/runs/hitrbi6d)           |
+|  &nbsp;   |      |     |     |     |     |     |     |       |        |       |         |                                                                                |
+| 16[^2118] | 192  | 16  | 12  |  1  |  1  |  1  |  12 | True  |    5.6 | 0.594 |  12.695 | [fluent-surf-2118](https://wandb.ai/aurora_gpt/AuroraGPT/runs/0y250j0i)        |
+| 16[^2119] | 192  | 16  | 12  |  1  |  1  |  2  |  24 | True  |  10.25 | 1.081 |  23.064 | [dulcet-salad-2119](https://wandb.ai/aurora_gpt/AuroraGPT/runs/5f1rdn9p)       |
+| 16[^2120] | 192  | 16  | 12  |  1  |  1  |  4  |  48 | True  |  18.10 | 1.908 |  40.713 | [rose-blaze-2120](https://wandb.ai/aurora_gpt/AuroraGPT/runs/9obt1iqi)         |
+| 16[^2121] | 192  | 16  | 12  |  1  |  1  |  8  |  96 | True  |  29.49 | 3.110 |  66.342 | [azure-jazz-2121](https://wandb.ai/aurora_gpt/AuroraGPT/runs/oaft4n5p)         |
+|    16     | 192  | 16  | 12  |  1  |  1  | 16  | 192 | True  |    OOM |   OOM |     OOM | OOM                                                                            |
+
+
+[^2125]: [chocolate-meadow-2125](https://wandb.ai/aurora_gpt/AuroraGPT/runs/uhfkwmp2)
+[^2126]: [glamorous-darkness-2126](https://wandb.ai/aurora_gpt/AuroraGPT/runs/tdehvqey)
+[^2153]: [proud-frog-2153](https://wandb.ai/aurora_gpt/AuroraGPT/runs/ho1lwmer)
+[^2127]: [stoic-dragon-2127](https://wandb.ai/aurora_gpt/AuroraGPT/runs/2vay044x)
+[^2128]: [drawn-wildflower-2128](https://wandb.ai/aurora_gpt/AuroraGPT/runs/qjaqpbxg)
+[^2129]: [fresh-waterfall-2129](https://wandb.ai/aurora_gpt/AuroraGPT/runs/8m38fq95)
+[^2130]: [divine-waterfall-2130](https://wandb.ai/aurora_gpt/AuroraGPT/runs/on3m4isp)
+[^2131]: [wild-bee-2131](https://wandb.ai/aurora_gpt/AuroraGPT/runs/hitrbi6d)
+[^2118]: [fluent-surf-2118](https://wandb.ai/aurora_gpt/AuroraGPT/runs/0y250j0i)
+[^2119]: [dulcet-salad-2119](https://wandb.ai/aurora_gpt/AuroraGPT/runs/5f1rdn9p)
+[^2120]: [rose-blaze-2120](https://wandb.ai/aurora_gpt/AuroraGPT/runs/9obt1iqi)
+[^2121]: [azure-jazz-2121](https://wandb.ai/aurora_gpt/AuroraGPT/runs/oaft4n5p)
+
+
+## ZeRO-3 + HPZ
+
+| Nodes  | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                      |
+| :----: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :------------------------------------------------------------------------- |
+|   4    |  48  |  1  |  1  |  1  |  1  |  1  |  48 | True  |    ??? |   ??? |     ??? | ???                                                                        |
+| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
+|   6    |  72  |  1  |  1  |  1  |  1  |  1  |  72 | True  |  39.05 | 1.544 |  87.849 | [charmed-fire-2203](https://wandb.ai/aurora_gpt/AuroraGPT/runs/actny2dl)   |
+| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
+|   8    |  96  |  1  |  1  |  1  |  1  |  1  |  96 | True  |  47.60 | 2.510 | 107.087 | [glamorous-wood-2199](https://wandb.ai/aurora_gpt/AuroraGPT/runs/bgu31497) |
+|   8    |  96  |  1  |  1  |  1  |  1  |  2  | 192 | True  |  55.69 | 2.936 | 125.287 | [solar-plant-2200](https://wandb.ai/aurora_gpt/AuroraGPT/runs/gnc48o99)    |
+|   8    |  96  |  1  |  1  |  1  |  1  |  4  | 384 | True  |  59.66 | 3.146 | 134.216 | [smooth-eon-2207](https://wandb.ai/aurora_gpt/AuroraGPT/runs/awt6d825)     |
+|   8    |  96  |  1  |  1  |  1  |  1  |  8  | 768 | True  |  62.19 | 3.279 | 139.919 | [glamorous-eon-2209](https://wandb.ai/aurora_gpt/AuroraGPT/runs/jmukcjdc)  |
+| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
+|   16   | 192  |  1  |  1  |  1  |  1  |  1  | 192 | True  |   57.6 | 6.074 | 129.577 | [gallant-field-2208](https://wandb.ai/aurora_gpt/AuroraGPT/runs/gb94ahi3)  |
+|   16   | 384  |  1  |  1  |  1  |  1  |  2  | 384 | True  |  61.86 | 6.523 | 139.161 | [swept-shadow-2210](https://wandb.ai/aurora_gpt/AuroraGPT/runs/riy7y3k1)   |
+
+
+[^z3h]: Seems to get hung on 4 nodes (waited ~30 min)
 
 ## 42B Model (Pure Tensor Parallelism) (TP=6)
 
@@ -108,6 +142,6 @@ MBS: 1
 
 | Nodes | DP  | TP  | MBS | GBS | TFLOPS | sample/s |
 | :---: | :-: | :-: | :-: | :-: | :----: | :------: |
-|   4   | 48  |  1  |  1  | 48  |  96.8  |   0.94   |
-|   8   | 96  |  1  |  1  | 96  |  99.1  |   1.92   |
-|  16   | 192 |  1  |  1  | 192 |  97.2  |   3.77   |
+| 4     | 48  | 1   | 1   | 48  | 96.8   | 0.94     |
+| 8     | 96  | 1   | 1   | 96  | 99.1   | 1.92     |
+| 16    | 192 | 1   | 1   | 192 | 97.2   | 3.77     |
