@@ -821,9 +821,11 @@ set_args() {
     fi
     ds_args+=("--deepspeed_config=${DS_CONFIG}")
     ds_args+=("--zero-stage=$ZERO_STAGE")
-    if [[ "${ZERO_STAGE}" == 3 ]]; then
-        ds_args+=("--use-mics")
-    fi
+
+    # if [[ "${ZERO_STAGE}" == 3 ]]; then
+    #     ds_args+=("--use-mics")
+    # fi
+
     # ds_args=" "
     # ds_args=" --deepspeed ${ds_args}"
     # if [[ $PP == 1 ]]; then
@@ -1359,16 +1361,18 @@ generateDSconfig() {
         # },"
         # mics_shard_size="${MICS_SHARD_SIZE:-${NGPU_PER_HOST}}"
         # \"mics_shard_size\": $mics_shard_size,
-        hpz_partition_size=${ZERO_HPZ_PARTITION_SIZE:-${NGPU_PER_HOST:-1}}
+        hpz_partition_size=${ZERO_HPZ_PARTITION_SIZE:-1}
+
+        # \"zero_quantized_weights\": false,
+            # \"zero_hpz_partition_size\": $hpz_partition_size,
+        # \"zero_quantized_gradients\": false,
+        # \"mics_shard_size\": 1,
+        # \"mics_hierarchical_params_gather\": false,
         zero="\
             \"zero_optimization\": {
               \"stage\": 3,
-              \"reduce_scatter\": false,
-              \"zero_quantized_weights\": false,
               \"zero_hpz_partition_size\": $hpz_partition_size,
-              \"zero_quantized_gradients\": false,
-              \"mics_shard_size\": 1,
-              \"mics_hierarchical_params_gather\": false,
+              \"reduce_scatter\": false,
               \"stage3_max_live_parameters\": 3e9,
               \"stage3_max_reuse_distance\": 3e9,
               \"stage3_param_persistence_threshold\": 1e5,
