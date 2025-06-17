@@ -63,6 +63,27 @@ PP="${NHOSTS}" \
 
 ## ZeRO-3 + HPZ
 
+- Command:
+
+    ```bash
+    TP=1 \
+      GRAD_ACC_STEPS=4 \
+      ZERO_HPZ_PARTITION_SIZE="${NGPU_PER_HOST}" \
+      PP=1 \
+      ZERO_STAGE=3 \
+      HEADS=64 \
+      NLAYERS=80 \
+      NUM_KV_HEAD=8 \
+      FFN_HIDDEN_SIZE=28672 \
+      HIDDEN=8192 \
+      MICRO_BATCH=1 \
+      SEQ_LEN=8192 \
+      USE_ACTIVATION_CHECKPOINTING=1 \
+      DATA_FILE_LIST="ALCF/data-lists/aurora/books.txt" \
+      bash train.sh
+    ```
+
+
 |  Nodes  | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                      |
 | :-----: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :------------------------------------------------------------------------- |
 | 4[^z3h] |  48  |  1  |  1  |  1  |  1  |  1  |  48 | True  |    ??? |   ??? |     ??? | ???                                                                        |
