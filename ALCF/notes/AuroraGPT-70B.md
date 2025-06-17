@@ -63,20 +63,20 @@ PP="${NHOSTS}" \
 
 ## ZeRO-3 + HPZ
 
-| Nodes  | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                      |
-| :----: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :------------------------------------------------------------------------- |
-|   4    |  48  |  1  |  1  |  1  |  1  |  1  |  48 | True  |    ??? |   ??? |     ??? | ???                                                                        |
-| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
-|   6    |  72  |  1  |  1  |  1  |  1  |  1  |  72 | True  |  39.05 | 1.544 |  87.849 | [charmed-fire-2203](https://wandb.ai/aurora_gpt/AuroraGPT/runs/actny2dl)   |
-| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
-|   8    |  96  |  1  |  1  |  1  |  1  |  1  |  96 | True  |  47.60 | 2.510 | 107.087 | [glamorous-wood-2199](https://wandb.ai/aurora_gpt/AuroraGPT/runs/bgu31497) |
-|   8    |  96  |  1  |  1  |  1  |  1  |  2  | 192 | True  |  55.69 | 2.936 | 125.287 | [solar-plant-2200](https://wandb.ai/aurora_gpt/AuroraGPT/runs/gnc48o99)    |
-|   8    |  96  |  1  |  1  |  1  |  1  |  4  | 384 | True  |  59.66 | 3.146 | 134.216 | [smooth-eon-2207](https://wandb.ai/aurora_gpt/AuroraGPT/runs/awt6d825)     |
-|   8    |  96  |  1  |  1  |  1  |  1  |  8  | 768 | True  |  62.19 | 3.279 | 139.919 | [glamorous-eon-2209](https://wandb.ai/aurora_gpt/AuroraGPT/runs/jmukcjdc)  |
-| &nbsp; |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
-|   16   | 192  |  1  |  1  |  1  |  1  |  1  | 192 | True  |   57.6 | 6.074 | 129.577 | [gallant-field-2208](https://wandb.ai/aurora_gpt/AuroraGPT/runs/gb94ahi3)  |
-|   16   | 384  |  1  |  1  |  1  |  1  |  2  | 384 | True  |  61.86 | 6.523 | 139.161 | [swept-shadow-2210](https://wandb.ai/aurora_gpt/AuroraGPT/runs/riy7y3k1)   |
-
+|  Nodes  | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                      |
+| :-----: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :------------------------------------------------------------------------- |
+| 4[^z3h] |  48  |  1  |  1  |  1  |  1  |  1  |  48 | True  |    ??? |   ??? |     ??? | ???                                                                        |
+| &nbsp;  |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
+|    6    |  72  |  1  |  1  |  1  |  1  |  1  |  72 | True  |  39.05 | 1.544 |  87.849 | [charmed-fire-2203](https://wandb.ai/aurora_gpt/AuroraGPT/runs/actny2dl)   |
+| &nbsp;  |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
+|    8    |  96  |  1  |  1  |  1  |  1  |  1  |  96 | True  |  47.60 | 2.510 | 107.087 | [glamorous-wood-2199](https://wandb.ai/aurora_gpt/AuroraGPT/runs/bgu31497) |
+|    8    |  96  |  1  |  1  |  1  |  1  |  2  | 192 | True  |  55.69 | 2.936 | 125.287 | [solar-plant-2200](https://wandb.ai/aurora_gpt/AuroraGPT/runs/gnc48o99)    |
+|    8    |  96  |  1  |  1  |  1  |  1  |  4  | 384 | True  |  59.66 | 3.146 | 134.216 | [smooth-eon-2207](https://wandb.ai/aurora_gpt/AuroraGPT/runs/awt6d825)     |
+|    8    |  96  |  1  |  1  |  1  |  1  |  8  | 768 | True  |  62.19 | 3.279 | 139.919 | [glamorous-eon-2209](https://wandb.ai/aurora_gpt/AuroraGPT/runs/jmukcjdc)  |
+| &nbsp;  |      |     |     |     |     |     |     |       |        |       |         |                                                                            |
+|   16    | 192  |  1  |  1  |  1  |  1  |  1  | 192 | True  |   57.6 | 6.074 | 129.577 | [gallant-field-2208](https://wandb.ai/aurora_gpt/AuroraGPT/runs/gb94ahi3)  |
+|   16    | 192  |  1  |  1  |  1  |  1  |  2  | 384 | True  |  61.86 | 6.523 | 139.161 | [swept-shadow-2210](https://wandb.ai/aurora_gpt/AuroraGPT/runs/riy7y3k1)   |
+|   16    | 192  |  1  |  1  |  1  |  1  |  4  | 768 | True  |  64.28 | 6.779 | 144.621 | [restful-oath-2212](https://wandb.ai/aurora_gpt/AuroraGPT/runs/kzmhlcju)   |
 
 [^z3h]: Seems to get hung on 4 nodes (waited ~30 min)
 
