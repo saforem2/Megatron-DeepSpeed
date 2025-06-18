@@ -150,7 +150,7 @@ def training_log(
         wandb_metrics |= {
             "lm-loss-training/iteration": iteration,
             "lm-loss-training/consumed_train_tokens": args.consumed_train_tokens,
-            **{"lm-loss-training/" + k: v for k, v in loss_dict.items()},
+            **{f"lm-loss-training/{k}": v for k, v in loss_dict.items()},
         }
         if grad_norm is not None:
             wandb_metrics |= {"training/grad-norm": grad_norm}
