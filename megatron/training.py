@@ -1,6 +1,7 @@
 # Copyright (C) 2024 Habana Labs, Ltd. an Intel Company.
 # Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 """Pretrain utilities."""
+
 import time
 
 # The earliest we can measure the start time.
@@ -190,7 +191,7 @@ def pretrain(
         [_TRAIN_START_TIME], dtype=torch.double, device=DEVICE_TYPE
     )
     tdist.all_reduce(start_time_tensor, op=tdist.ReduceOp.MIN)
-    log.info(f"allreduce call time: {time.time()-before_allreduce} seconds")
+    log.info(f"allreduce call time: {time.time() - before_allreduce} seconds")
     _TRAIN_START_TIME = start_time_tensor.item()
     log.info(
         "time to initialize megatron (seconds)={:.3f}".format(
@@ -241,7 +242,7 @@ def pretrain(
         build_train_valid_test_datasets_provider=train_valid_test_dataset_provider,
     )
     timers("model-and-optimizer-setup").stop()
-    print_datetime("after model, optimizer, and learning rate " "scheduler are built")
+    print_datetime("after model, optimizer, and learning rate scheduler are built")
     # Data stuff.
     timers("train/valid/test-data-iterators-setup", log_level=0).start(barrier=True)
     if args.virtual_pipeline_model_parallel_size is not None:
@@ -421,9 +422,9 @@ def get_model(
         mpu.get_pipeline_model_parallel_world_size() > 1
         and args.virtual_pipeline_model_parallel_size is not None
     ):
-        assert (
-            model_type != ModelType.encoder_and_decoder
-        ), "Interleaved schedule not supported for model with both encoder and decoder"
+        assert model_type != ModelType.encoder_and_decoder, (
+            "Interleaved schedule not supported for model with both encoder and decoder"
+        )
         model = []
         for i in range(args.virtual_pipeline_model_parallel_size):
             mpu.set_virtual_pipeline_model_parallel_rank(i)
@@ -442,9 +443,9 @@ def get_model(
         add_decoder = True
         if model_type == ModelType.encoder_and_decoder:
             if mpu.get_pipeline_model_parallel_world_size() > 1:
-                assert (
-                    args.pipeline_model_parallel_split_rank is not None
-                ), "Split rank needs to be specified for model with both encoder and decoder"
+                assert args.pipeline_model_parallel_split_rank is not None, (
+                    "Split rank needs to be specified for model with both encoder and decoder"
+                )
                 rank = mpu.get_pipeline_model_parallel_rank()
                 split_rank = args.pipeline_model_parallel_split_rank
                 world_size = mpu.get_pipeline_model_parallel_world_size()
@@ -470,9 +471,9 @@ def get_model(
     # Disallow training and inference with Transformer Engine
     # for non-GPT models
     args.allow_transformer_engine = all([type(m) == GPTModel for m in model])
-    assert (
-        args.allow_transformer_engine or args.transformer_impl == "local"
-    ), "Transformer Engine is only approved for GPT models"
+    assert args.allow_transformer_engine or args.transformer_impl == "local", (
+        "Transformer Engine is only approved for GPT models"
+    )
 
     # Set tensor model parallel attributes if not set.
     # Only parameters that are already tensor model parallel have these
@@ -545,8 +546,9 @@ def get_model(
                     model_module.broadcast_params()
         else:
             raise NotImplementedError(
-                "Unknown DDP implementation specified: "
-                "{}. Exiting.".format(args.DDP_impl)
+                "Unknown DDP implementation specified: {}. Exiting.".format(
+                    args.DDP_impl
+                )
             )
 
     return model
@@ -622,7 +624,7 @@ def load_model_weights_only(model_provider_func):
         )
 
         assert not isinstance(model, deepspeed.PipelineEngine), (
-            "Weight loading only mode is not supported in " "pipeline parallelism yet."
+            "Weight loading only mode is not supported in pipeline parallelism yet."
         )
         model = [model]
     print_datetime("before load checkpoint")
@@ -1408,14 +1410,16 @@ def evaluate_and_print_results(
     )
     key = "test" if test else "val"
     if wandb is not None and wandb.run is not None:
-        wandb.log({
-            f"{key}/iteration": iteration,
-            **{f"{key}/{k}": v for k, v in total_loss_dict.items()},
-            **{
-                f"{key}/ppl_{k}": math.exp(min(20, v.item()))
-                for k, v in total_loss_dict.items()
-            },
-        })
+        wandb.log(
+            {
+                f"{key}/iteration": iteration,
+                **{f"{key}/{k}": v for k, v in total_loss_dict.items()},
+                **{
+                    f"{key}/ppl_{k}": math.exp(min(20, v.item()))
+                    for k, v in total_loss_dict.items()
+                },
+            }
+        )
     string = " validation loss at {} | ".format(prefix)
     for key in total_loss_dict:
         string += f"{key} value={total_loss_dict[key].item():.6f}"
@@ -1510,9 +1514,9 @@ def build_train_valid_test_data_loaders(build_train_valid_test_datasets_provider
     log.info("> building train, validation, and test datasets ...")
     # Backward compatibility, assume fixed batch size.
     if args.iteration > 0 and args.consumed_train_samples == 0:
-        assert (
-            args.train_samples is None
-        ), "only backward compatiblity support for iteration-based training"
+        assert args.train_samples is None, (
+            "only backward compatiblity support for iteration-based training"
+        )
         args.consumed_train_samples = args.iteration * args.global_batch_size
     if args.iteration > 0 and args.consumed_valid_samples == 0:
         if args.train_samples is None:
