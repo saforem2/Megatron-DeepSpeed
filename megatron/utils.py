@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 
 import torch
+import torch.distributed
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 
 from deepspeed.accelerator import get_accelerator
@@ -203,7 +204,7 @@ def calc_params_l2_norm(model):
     # Calculate norm
     dummy_overflow_buf = get_accelerator().IntTensor([0])
 
-    if get_accelerator().device_name() == "cuda" and HAS_APEX:
+    if ACCELERATOR.device_name() == "cuda" and HAS_APEX:
         norm, _ = multi_tensor_applier(
             amp_C.multi_tensor_l2norm,
             dummy_overflow_buf,
@@ -392,9 +393,10 @@ def is_aml():
 def is_rank_0():
     """Check whether it is rank 0. For AML, check if it is rank 0 of a node"""
     if torch.distributed.is_initialized():
+        assert ACCELERATOR is not None
         if torch.distributed.get_rank() == 0 or (
             is_aml()
-            and (torch.distributed.get_rank() % get_accelerator().device_count()) == 0
+            and (torch.distributed.get_rank() % ACCELERATOR.device_count()) == 0
         ):
             return True
         else:
@@ -532,7 +534,7 @@ def checkpoint_throughput_calculator(model, latency_second):
     checkpoint_GB = approx_parameters_in_billions * checkpoint_multiplier
     GB_per_second = checkpoint_GB / latency_second
     print_rank_0(
-        f"Checkpoint Save GB: {round(checkpoint_GB, 3)}, GB/Sec: {round(GB_per_second,2)}, Latency(second): {round(latency_second, 3)}"
+        f"Checkpoint Save GB: {round(checkpoint_GB, 3)}, GB/Sec: {round(GB_per_second, 2)}, Latency(second): {round(latency_second, 3)}"
     )
 
 
@@ -585,7 +587,7 @@ def dump_weights(preamble, iteration, model, optimizer, tensor=None):
     #    return
 
     if tensor is not None:
-        orig_tensor = tensor
+        orig_tensor = tensor  # XXX: Unused ????
         if hasattr(tensor, "_hp_param"):
             numel = tensor._hp_param.numel()  # // dp_size
             tensor = tensor.flatten().narrow(0, 0, numel)
