@@ -8,6 +8,8 @@ from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 
 from megatron.core.utils import init_method_normal
+
+
 class GPTEmbedding(MegatronModule):
     """Language model embeddings.
 
@@ -32,9 +34,9 @@ class GPTEmbedding(MegatronModule):
         self.word_embeddings = tensor_parallel.VocabParallelEmbedding(
             num_embeddings=self.vocab_size,
             embedding_dim=self.config.hidden_size,
-            #init_method=self.config.init_method,
-            init_method=self.config.world_embedding_init_method
-            config=self.config
+            # init_method=self.config.init_method,
+            init_method=self.config.world_embedding_init_method,
+            config=self.config,
         )
         # @jcasper are these keys needed?
         self._word_embeddings_key = "word_embeddings"
