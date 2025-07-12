@@ -76,21 +76,21 @@ def validate_args(args, defaults={}):
     args.tensor_model_parallel_size = min(
         args.tensor_model_parallel_size, args.world_size
     )
-    assert (
-        args.world_size % args.tensor_model_parallel_size == 0
-    ), "world size" " ({}) is not divisible by tensor model parallel size ({})".format(
-        args.world_size, args.tensor_model_parallel_size
+    assert args.world_size % args.tensor_model_parallel_size == 0, (
+        "world size ({}) is not divisible by tensor model parallel size ({})".format(
+            args.world_size, args.tensor_model_parallel_size
+        )
     )
     # Zero bubble pipeline is defined on deepspeed's scheduler
     if args.enable_zbh1_pipeline:
         assert args.deepspeed, "Use DeepSpeed to use zero-bubble H1 pipeline"
-        assert (
-            args.sequence_parallel == False
-        ), "Sequence Parallel not tested, proceed at own will by removing this line"
+        assert args.sequence_parallel == False, (
+            "Sequence Parallel not tested, proceed at own will by removing this line"
+        )
     if args.enable_zbh1_exact_semantics:
-        assert (
-            args.enable_zbh1_pipeline
-        ), "Exact semantics require ZBH1 pipeline enabled"
+        assert args.enable_zbh1_pipeline, (
+            "Exact semantics require ZBH1 pipeline enabled"
+        )
     # Pipeline model parallel size.
     args.pipeline_model_parallel_size = min(
         args.pipeline_model_parallel_size,
@@ -103,14 +103,14 @@ def validate_args(args, defaults={}):
     )
     # Checks.
     if args.no_pipeline_parallel:
-        assert (
-            args.pipeline_model_parallel_size == 1
-        ), "pipeline_model_parallel_size must be 1 if pipeline parallel is disabled"
+        assert args.pipeline_model_parallel_size == 1, (
+            "pipeline_model_parallel_size must be 1 if pipeline parallel is disabled"
+        )
 
     if args.ds_sequence_parallel_size > 1:
-        assert version.parse(deepspeed.__version__) >= version.parse(
-            "0.10.2"
-        ), "sequence parallelism requires DeepSpeed version 0.10.2+"
+        assert version.parse(deepspeed.__version__) >= version.parse("0.10.2"), (
+            "sequence parallelism requires DeepSpeed version 0.10.2+"
+        )
 
     model_parallel_size = (
         args.pipeline_model_parallel_size
@@ -156,11 +156,11 @@ def validate_args(args, defaults={}):
 
     # Deprecated arguments
     assert args.batch_size is None, (
-        "--batch-size argument is no longer " "valid, use --micro-batch-size instead"
+        "--batch-size argument is no longer valid, use --micro-batch-size instead"
     )
     del args.batch_size
     assert args.warmup is None, (
-        "--warmup argument is no longer valid, use " "--lr-warmup-fraction instead"
+        "--warmup argument is no longer valid, use --lr-warmup-fraction instead"
     )
     del args.warmup
     assert args.model_parallel_size is None, (
@@ -284,19 +284,19 @@ def validate_args(args, defaults={}):
         # If we use iteration-based training, make sure the
         # sample-based options are off.
         assert args.train_samples is None, "expected iteration-based training"
-        assert (
-            args.lr_decay_samples is None
-        ), "expected iteration-based learning rate decay"
-        assert (
-            args.lr_warmup_samples == 0
-        ), "expected iteration-based learning rate warmup"
-        assert (
-            args.rampup_batch_size is None
-        ), "expected no batch-size rampup for iteration-based training"
+        assert args.lr_decay_samples is None, (
+            "expected iteration-based learning rate decay"
+        )
+        assert args.lr_warmup_samples == 0, (
+            "expected iteration-based learning rate warmup"
+        )
+        assert args.rampup_batch_size is None, (
+            "expected no batch-size rampup for iteration-based training"
+        )
         if args.lr_warmup_fraction is not None:
-            assert (
-                args.lr_warmup_iters == 0
-            ), "can only specify one of lr-warmup-fraction and lr-warmup-iters"
+            assert args.lr_warmup_iters == 0, (
+                "can only specify one of lr-warmup-fraction and lr-warmup-iters"
+            )
 
     # Sample-based training.
     if args.train_samples:
@@ -307,19 +307,19 @@ def validate_args(args, defaults={}):
         assert args.lr_warmup_iters == 0, "expected sample-based learnig rate warmup"
         if args.lr_warmup_fraction is not None:
             assert args.lr_warmup_samples == 0, (
-                "can only specify one of lr-warmup-fraction " "and lr-warmup-samples"
+                "can only specify one of lr-warmup-fraction and lr-warmup-samples"
             )
 
     if args.num_layers is not None:
-        assert (
-            args.encoder_num_layers is None
-        ), "cannot have both num-layers and encoder-num-layers specified"
+        assert args.encoder_num_layers is None, (
+            "cannot have both num-layers and encoder-num-layers specified"
+        )
         args.encoder_num_layers = args.num_layers
     else:
         if not args.use_dataset_only:
-            assert (
-                args.encoder_num_layers is not None
-            ), "either num-layers or encoder-num-layers should be specified"
+            assert args.encoder_num_layers is not None, (
+                "either num-layers or encoder-num-layers should be specified"
+            )
             args.num_layers = args.encoder_num_layers
 
     # Check required arguments.
@@ -374,9 +374,9 @@ def validate_args(args, defaults={}):
     if args.fp16_lm_cross_entropy:
         assert args.fp16, "lm cross entropy in fp16 only support in fp16 mode."
     if args.fp32_residual_connection:
-        assert (
-            args.fp16 or args.bf16
-        ), "residual connection in fp32 only supported when using fp16 or bf16."
+        assert args.fp16 or args.bf16, (
+            "residual connection in fp32 only supported when using fp16 or bf16."
+        )
 
     if not args.use_dataset_only:
         if args.weight_decay_incr_style == "constant":
@@ -430,13 +430,13 @@ def validate_args(args, defaults={}):
 
     # Tranformer-Engine/FP8 related checking
     if args.fp8_e4m3 or args.fp8_hybrid:
-        assert (
-            args.transformer_impl == "transformer_engine"
-        ), "transformer-engine required for fp8 training and inference"
+        assert args.transformer_impl == "transformer_engine", (
+            "transformer-engine required for fp8 training and inference"
+        )
 
-    assert not (
-        args.fp8_e4m3 and args.fp8_hybrid
-    ), "cannot train with both fp8 e4m3 and hybrid formatting"
+    assert not (args.fp8_e4m3 and args.fp8_hybrid), (
+        "cannot train with both fp8 e4m3 and hybrid formatting"
+    )
 
     if args.recompute_granularity == "selective":
         assert args.recompute_method is None, (
@@ -557,7 +557,6 @@ def _check_arg_is_not_none(args, arg):
 
 
 def core_transformer_config_from_args(args):
-
     # Translate args to core transformer configuration
     kw_args = {}
     for f in dataclasses.fields(TransformerConfig):
@@ -666,7 +665,7 @@ def _add_inference_args(parser):
         "--bert-embedder-type",
         default="megatron",
         choices=["megatron", "huggingface"],
-        help="Select either Megatron or Huggingface as the " "Bert embedder.",
+        help="Select either Megatron or Huggingface as the Bert embedder.",
     )
 
     return parser
@@ -695,37 +694,37 @@ def _add_retro_args(parser):
         "--retro-cyclic-train-iters",
         type=int,
         default=None,
-        help="Set number of training iterations for cyclic " "Retro training.",
+        help="Set number of training iterations for cyclic Retro training.",
     )
     group.add_argument(
         "--retro-encoder-layers",
         type=int,
         default=2,
-        help="Number of layers to use for the retrieval " "encoder.",
+        help="Number of layers to use for the retrieval encoder.",
     )
     group.add_argument(
         "--retro-encoder-hidden-dropout",
         type=float,
         default=0.1,
-        help="Hidden dropout for " "retrieval encoder.",
+        help="Hidden dropout for retrieval encoder.",
     )
     group.add_argument(
         "--retro-encoder-attention-dropout",
         type=float,
         default=0.1,
-        help="Attention dropout for " "retrieval encoder.",
+        help="Attention dropout for retrieval encoder.",
     )
     group.add_argument(
         "--retro-num-neighbors",
         type=int,
         default=2,
-        help="Number of neighbors to retrieve during " "pretraining.",
+        help="Number of neighbors to retrieve during pretraining.",
     )
     group.add_argument(
         "--retro-num-retrieved-chunks",
         type=int,
         default=2,
-        help="Number of chunks to retrieve from the retrieval " "database.",
+        help="Number of chunks to retrieve from the retrieval database.",
     )
     group.add_argument(
         "--retro-return-doc-ids",
@@ -860,7 +859,7 @@ def _add_network_size_args(parser):
         type=str,
         default="layernorm",
         choices=["layernorm", "rmsnorm"],
-        help="Options for layer normalization type:" "  layernorm" "  rmsnorm",
+        help="Options for layer normalization type:  layernorm  rmsnorm",
     )
     group.add_argument(
         "--layernorm-epsilon", type=float, default=1e-5, help="Layer norm epsilon."
@@ -881,7 +880,7 @@ def _add_network_size_args(parser):
     group.add_argument(
         "--apply-residual-connection-post-layernorm",
         action="store_true",
-        help="If set, use original BERT residula connection " "ordering.",
+        help="If set, use original BERT residula connection ordering.",
     )
     group.add_argument(
         "--openai-gelu",
@@ -904,7 +903,7 @@ def _add_network_size_args(parser):
         "--onnx-safe",
         type=bool,
         required=False,
-        help="Use workarounds for known problems with " "Torch ONNX exporter",
+        help="Use workarounds for known problems with Torch ONNX exporter",
     )
     group.add_argument(
         "--bert-no-binary-head",
@@ -918,16 +917,20 @@ def _add_network_size_args(parser):
         default=None,
         help="Number of Experts in Switch Transformer (None means no Switch)",
     )
-    group.add_argument(
-        "--untie-embeddings-and-output-weights",
-        action="store_true",
-        help="Untie embeddings and output weights.",
-    ),
-    group.add_argument(
-        "--embedding-weights-in-fp32",
-        action="store_true",
-        help="Cast word embedding weights to fp32 before embedding fwd.",
-    ),
+    (
+        group.add_argument(
+            "--untie-embeddings-and-output-weights",
+            action="store_true",
+            help="Untie embeddings and output weights.",
+        ),
+    )
+    (
+        group.add_argument(
+            "--embedding-weights-in-fp32",
+            action="store_true",
+            help="Cast word embedding weights to fp32 before embedding fwd.",
+        ),
+    )
     group.add_argument(
         "--kill-switch-file",
         type=str,
@@ -1027,7 +1030,7 @@ def _add_logging_args(parser):
     group.add_argument(
         "--log-validation-ppl-to-tensorboard",
         action="store_true",
-        help="If set, write validation perplexity to " "tensorboard.",
+        help="If set, write validation perplexity to tensorboard.",
     )
     group.add_argument(
         "--log-optimizer-states-to-tensorboard",
@@ -1144,10 +1147,60 @@ def _add_regularization_args(parser):
         "--adam-eps",
         type=float,
         default=1e-08,
-        help="Term added to the denominator to improve" "numerical stability",
+        help="Term added to the denominator to improvenumerical stability",
+    )
+    group.add_argument(
+        "--dshampooadamw-max-preconditioner-dim",
+        type=int,
+        default=8192,
+        help="Max preconditioner dim",
+    )
+    group.add_argument(
+        "--dshampooadamw-precondition-freq",
+        type=int,
+        default=100,
+        help="dshampoo preconditioner frequency",
+    )
+    group.add_argument(
+        "--dshampooadamw-use-decoupled-weight-decay",
+        type=bool,
+        default=True,
+        help="dshampoo use decoupled weight decay",
+    )
+    group.add_argument(
+        "--dshampooadamw-eps", type=float, default=1e-12, help="dshampoo epsilon"
     )
     group.add_argument(
         "--sgd-momentum", type=float, default=0.9, help="Momentum factor for sgd"
+    )
+    group.add_argument(
+        "--muon-momentum", type=float, default=0.95, help="Momentum factor for Muon "
+    )
+
+    group.add_argument(
+        "--muon-nesterov",
+        type=bool,
+        default=True,
+        help="Whether to use Nesterov in the internal SGD",
+    )
+
+    group.add_argument(
+        "--muon-ns-steps",
+        type=int,
+        default=6,
+        help="The number of Newton-Schulz iterations to run",
+    )
+
+    group.add_argument(
+        "--muonadamw-beta1", type=float, default=0.9, help="beta1 for internal adamw"
+    )
+
+    group.add_argument(
+        "--muonadamw-beta2", type=float, default=0.999, help="beta2 for internal adamw"
+    )
+
+    group.add_argument(
+        "--muonadamw-eps", type=float, default=1e-12, help="epsilon for internal adamw"
     )
 
     return parser
@@ -1168,7 +1221,7 @@ def _add_training_args(parser):
         "--batch-size",
         type=int,
         default=None,
-        help="Old batch size parameter, do not use. " "Use --micro-batch-size instead",
+        help="Old batch size parameter, do not use. Use --micro-batch-size instead",
     )
     group.add_argument(
         "--global-batch-size",
@@ -1218,8 +1271,7 @@ def _add_training_args(parser):
     group.add_argument(
         "--distribute-saved-activations",
         action="store_true",
-        help="If set, distribute recomputed activations "
-        "across model parallel group.",
+        help="If set, distribute recomputed activations across model parallel group.",
     )
     group.add_argument(
         "--recompute-method",
@@ -1266,8 +1318,7 @@ def _add_training_args(parser):
     group.add_argument(
         "--distribute-checkpointed-activations",
         action="store_true",
-        help="If set, distribute checkpointed activations "
-        "across model parallel group.",
+        help="If set, distribute checkpointed activations across model parallel group.",
     )
     group.add_argument(
         "--checkpoint-num-layers",
@@ -1295,7 +1346,7 @@ def _add_training_args(parser):
         "--train-tokens",
         type=int,
         default=None,
-        help="Total number of tokens to train over all " "training runs.",
+        help="Total number of tokens to train over all training runs.",
     )
     group.add_argument(
         "--random-ltd", action="store_true", help="enable random layer token drop"
@@ -1307,7 +1358,7 @@ def _add_training_args(parser):
         "--exit-interval",
         type=int,
         default=None,
-        help="Exit the program after the iteration is divisible " "by this value.",
+        help="Exit the program after the iteration is divisible by this value.",
     )
     group.add_argument(
         "--exit-duration-in-mins",
@@ -1336,7 +1387,7 @@ def _add_training_args(parser):
     group.add_argument(
         "--no-masked-softmax-fusion",
         action="store_false",
-        help="Disable fusion of query_key_value scaling, " "masking, and softmax.",
+        help="Disable fusion of query_key_value scaling, masking, and softmax.",
         dest="masked_softmax_fusion",
     )
     group.add_argument(
@@ -1441,10 +1492,11 @@ def _add_training_args(parser):
             "galoreadamw8bitperlayer",
             "ipex.fusedlamb",
             "ipex.lamb",
-            "shampoo",
-            "sgd",
+            "dshampooadamwsgd",
             "sgdschedulefree",
             "sophiag",
+            "adopt",
+            "muon",
         ],
         help="Optimizer function",
     )
@@ -1570,12 +1622,12 @@ def _add_initialization_args(parser):
         "--seed",
         type=int,
         default=1234,
-        help="Random seed used for python, numpy, " "pytorch, and cuda.",
+        help="Random seed used for python, numpy, pytorch, and cuda.",
     )
     group.add_argument(
         "--data-parallel-random-init",
         action="store_true",
-        help="Enable random initialization of params " "across data parallel ranks",
+        help="Enable random initialization of params across data parallel ranks",
     )
     group.add_argument(
         "--init-method-std",
@@ -1583,6 +1635,20 @@ def _add_initialization_args(parser):
         default=0.02,
         help="Standard deviation of the zero mean normal "
         "distribution used for weight initialization.",
+    )
+    # from emb_init branch
+    group.add_argument(
+        "--adjust-word-embedding-init",
+        action="store_true",
+        help="Use different initialization for word embedding weights",
+    )
+
+    group.add_argument(
+        "--word-embedding-init-std",
+        type=float,
+        default=0.02,
+        help="Standard deviation of the zero mean normal "
+        "distribution used for word embedding weight initialization.",
     )
     group.add_argument(
         "--init-method-xavier-uniform",
@@ -1608,7 +1674,14 @@ def _add_learning_rate_args(parser):
         "--lr-decay-style",
         type=str,
         default="linear",
-        choices=["constant", "linear", "cosine", "inverse-square-root"],
+        choices=[
+            "constant",
+            "linear",
+            "cosine",
+            "inverse-square-root",
+            "infinite-cosine",
+            "infinite-inv-square-root",
+        ],
         help="Learning rate decay function.",
     )
     group.add_argument(
@@ -1636,25 +1709,60 @@ def _add_learning_rate_args(parser):
         "--lr-warmup-fraction",
         type=float,
         default=None,
-        help="fraction of lr-warmup-(iters/samples) to use " "for warmup (as a float)",
+        help="fraction of lr-warmup-(iters/samples) to use for warmup (as a float)",
     )
     group.add_argument(
         "--lr-warmup-iters",
         type=int,
         default=0,
-        help="number of iterations to linearly warmup " "learning rate over.",
+        help="number of iterations to linearly warmup learning rate over.",
     )
     group.add_argument(
         "--lr-warmup-samples",
         type=int,
         default=0,
-        help="number of samples to linearly warmup " "learning rate over.",
+        help="number of samples to linearly warmup learning rate over.",
     )
     group.add_argument(
         "--lr-warmup-tokens",
         type=int,
         default=None,
-        help="number of tokens to linearly warmup " "learning rate over.",
+        help="number of tokens to linearly warmup learning rate over.",
+    )
+    group.add_argument(
+        "--lr-constant-tokens",
+        type=int,
+        default=None,
+        help="number of tokens to keep constant learning rate over.",
+    )
+
+    group.add_argument(
+        "--lr-constant-fraction",
+        type=float,
+        default=0.001,
+        help="fraction of lr-constant-(iters/samples) to use "
+        "for constant phase (as a float)",
+    )
+
+    group.add_argument(
+        "--lr-cooldown-tokens",
+        type=int,
+        default=None,
+        help="number of tokens to cooldown learning rate over,"
+        " If not None will override iter/sample-based decay",
+    )
+
+    group.add_argument(
+        "--lr-cooldown-fraction",
+        type=float,
+        default=0.65,
+        help="fraction -(iters/samples) to use for cooldownt phase (as a float)",
+    )
+
+    group.add_argument(
+        "--lr-finder",
+        action="store_true",
+        help="Run learning rate finder mode for 10% of training data then exit",
     )
     group.add_argument(
         "--warmup",
@@ -1669,6 +1777,19 @@ def _add_learning_rate_args(parser):
         default=0.0,
         help="Minumum value for learning rate. The scheduler"
         "clip values below this threshold.",
+    )
+    group.add_argument(
+        "--constant-lr",
+        type=float,
+        default=0.00011,
+        help="Constant value for learning rate",
+    )
+
+    group.add_argument(
+        "--timescale",
+        type=float,
+        default=10.0,
+        help="Timescale for the steepness of the inverse square root cooldown",
     )
     group.add_argument(
         "--override-opt_param-scheduler",
@@ -1765,8 +1886,7 @@ def _add_checkpointing_args(parser):
     group.add_argument(
         "--use-checkpoint-args",
         action="store_true",
-        help="Override any command line arguments with arguments "
-        "from the checkpoint",
+        help="Override any command line arguments with arguments from the checkpoint",
     )
     group.add_argument(
         "--exit-on-missing-checkpoint",
@@ -1845,7 +1965,7 @@ def _add_mixed_precision_args(parser):
     group.add_argument(
         "--fp16-lm-cross-entropy",
         action="store_true",
-        help="Move the cross entropy unreduced loss calculation" "for lm head to fp16.",
+        help="Move the cross entropy unreduced loss calculationfor lm head to fp16.",
     )
 
     return parser
@@ -1919,12 +2039,12 @@ def _add_distributed_args(parser):
         "--DDP-impl",
         default="local",
         choices=["local", "torch", "FSDP"],
-        help="which DistributedDataParallel implementation " "to use.",
+        help="which DistributedDataParallel implementation to use.",
     )
     group.add_argument(
         "--no-contiguous-buffers-in-local-ddp",
         action="store_false",
-        help="If set, dont use " "contiguous buffer in local DDP.",
+        help="If set, dont use contiguous buffer in local DDP.",
         dest="use_contiguous_buffers_in_local_ddp",
     )
     group.add_argument(
@@ -1962,7 +2082,7 @@ def _add_distributed_args(parser):
         "--use-cpu-initialization",
         action="store_true",
         default=None,
-        help="If set, affine parallel weights " "initialization uses CPU",
+        help="If set, affine parallel weights initialization uses CPU",
     )
     group.add_argument(
         "--empty-unused-memory-level",
@@ -1998,13 +2118,13 @@ def _add_validation_args(parser):
         "--eval-iters",
         type=int,
         default=100,
-        help="Number of iterations to run for evaluation" "validation/test for.",
+        help="Number of iterations to run for evaluationvalidation/test for.",
     )
     group.add_argument(
         "--eval-interval",
         type=int,
         default=1000,
-        help="Interval between running evaluation on " "validation set.",
+        help="Interval between running evaluation on validation set.",
     )
     group.add_argument(
         "--skip-train",
@@ -2141,13 +2261,13 @@ def _add_data_args(parser):
         "--retriever-seq-length",
         type=int,
         default=256,
-        help="Maximum sequence length for the biencoder model " "for retriever",
+        help="Maximum sequence length for the biencoder model for retriever",
     )
     group.add_argument(
         "--sample-rate",
         type=float,
         default=1.0,
-        help="sample rate for training data. Supposed to be 0 " " < sample_rate < 1",
+        help="sample rate for training data. Supposed to be 0  < sample_rate < 1",
     )
     group.add_argument(
         "--mask-prob",
@@ -2208,7 +2328,7 @@ def _add_data_args(parser):
     group.add_argument(
         "--reset-attention-mask",
         action="store_true",
-        help="Reset self attention maske after " "end-of-document token.",
+        help="Reset self attention maske after end-of-document token.",
     )
     group.add_argument(
         "--eod-mask-loss",
@@ -2283,7 +2403,7 @@ def _add_autoresume_args(parser):
         "--adlr-autoresume-interval",
         type=int,
         default=1000,
-        help="Intervals over which check for autoresume" "termination signal",
+        help="Intervals over which check for autoresumetermination signal",
     )
 
     return parser
@@ -2304,13 +2424,12 @@ def _add_biencoder_args(parser):
         "--biencoder-projection-dim",
         type=int,
         default=0,
-        help="Size of projection head used in biencoder (paper" " default: 128)",
+        help="Size of projection head used in biencoder (paper default: 128)",
     )
     group.add_argument(
         "--biencoder-shared-query-context-model",
         action="store_true",
-        help="Whether to share the parameters of the query "
-        "and context models or not",
+        help="Whether to share the parameters of the query and context models or not",
     )
 
     # checkpointing
@@ -2339,7 +2458,7 @@ def _add_biencoder_args(parser):
         "--query-in-block-prob",
         type=float,
         default=0.1,
-        help="Probability of keeping query in block for " "ICT dataset",
+        help="Probability of keeping query in block for ICT dataset",
     )
     group.add_argument(
         "--use-one-sent-docs",
@@ -2359,13 +2478,12 @@ def _add_biencoder_args(parser):
         nargs="+",
         type=int,
         default=[],
-        help="Which top-k accuracies to report " "(e.g. '1 5 20')",
+        help="Which top-k accuracies to report (e.g. '1 5 20')",
     )
     group.add_argument(
         "--retriever-score-scaling",
         action="store_true",
-        help="Whether to scale retriever scores by inverse "
-        "square root of hidden size",
+        help="Whether to scale retriever scores by inverse square root of hidden size",
     )
 
     # faiss index
@@ -2379,7 +2497,7 @@ def _add_biencoder_args(parser):
         "--embedding-path",
         type=str,
         default=None,
-        help="Where to save/load Open-Retrieval Embedding" " data to/from",
+        help="Where to save/load Open-Retrieval Embedding data to/from",
     )
 
     # indexer
@@ -2387,13 +2505,13 @@ def _add_biencoder_args(parser):
         "--indexer-batch-size",
         type=int,
         default=128,
-        help="How large of batches to use when doing indexing " "jobs",
+        help="How large of batches to use when doing indexing jobs",
     )
     group.add_argument(
         "--indexer-log-interval",
         type=int,
         default=1000,
-        help="After how many batches should the indexer " "report progress",
+        help="After how many batches should the indexer report progress",
     )
     return parser
 
