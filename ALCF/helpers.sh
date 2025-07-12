@@ -1042,14 +1042,20 @@ make_data() {
 install_dependencies() {
     depsfile="${WORKING_DIR}/ALCF/requirements/requirements.txt"
     echo "[install_dependencies] Ensuring all dependencies from ${depsfile} installed..."
-    python3 -m pip install -r "${depsfile}" --require-virtualenv 1>/dev/null
+    python3 -m pip install -r "${depsfile}" --require-virtualenv
     if [[ ! -x "$(command -v deepspeed)" ]]; then
-        mn=$(ezpz_get_machine_name)
+        printf "[install_dependencies] No 'deepspeed' command found on %s in %s\n" "$$(ezpz_get_machine_name)" "$(which python3)"
+        printf "[install_dependencies] Attempting to install deepspeed via pip...\n"
+        python3 -m pip install deepspeed --require-virtualenv || {
+            printf "[install_dependencies] Failed to install deepspeed via pip on %s\n" "$(ezpz_get_machine_name)"
+            # printf "[install_dependencies] !! No deepsepeed in %s\n" "$(which python3)"
+            return 1
+        }
+        # mn=$(ezpz_get_machine_name)
         # if [[ "${mn}" == aurora* || "${mn}" == sunspot* ]]; then
         #     install_deepspeed_for_xpu || exit
         # fi
-        printf "[install_dependencies] No 'deepspeed' command found on %s" "${mn}"
-        printf "[install_dependencies] !! No deepsepeed in %s" "$(which python3)"
+        # printf "[install_dependencies] !! No deepsepeed in %s" "$(which python3)"
     fi
 }
 
