@@ -8,6 +8,8 @@ try that I've found useful.
 > and should work on _any_ of the ALCF systems[^alcf].
 > (though it _should_ work anywhere, let me know if you run into issues!)
 
+## 🤔 Why Does this Happen?
+
 One of the most common issues encountered by users is a mangled environment.
 
 This happens often when a user is:
@@ -23,7 +25,9 @@ Ultimately, this is usually due to some combination of the above causing
 conflicts in one (or more) of:
 
 ```bash
-{"${PATH}", "${LD_LIBRARY_PATH}", "${PYTHONPATH}", "${CONDA_PREFIX}", "${CUDA_HOME}", ...}
+"${PATH}", "${LD_LIBRARY_PATH}", "${CUDA_HOME}",
+"${VIRTUAL_ENV}", "${VENV_DIR}", "${PYTHONPATH}", "${CONDA_PREFIX}",
+...
 ```
 
 being misconfigured[^bad_env].
@@ -48,7 +52,7 @@ Some of the most common reasons this may happen are:
 
 [^bad_env]: Among _many_ possible others.
 
-## 🤔 Things to Try
+## 🧪 Things to Try
 
 1. **Reset your environment**: If you're in an interactive session, you can get
    a clean environment by re-logging into the node:
@@ -89,37 +93,43 @@ Some of the most common reasons this may happen are:
    </details>
 
 1. **Start from scratch**:
+   - Create a _new_, _isolated_ directory for debugging
+  
+     ```bash
+     now=$(date +'%Y-%m-%d %H:%M:%S')
+     debug_dir="debugging/${now}"
+     mkdir -p "${debug_dir}" && cd "${debug_dir}"
+     echo "Debugging in $(pwd)"
+  
    - Create a new clone of the repository
+
+     ```bash
+     git clone https://github.com/argonne-lcf/Megatron-DeepSpeed && cd Megatron-DeepSpeed
+     ```
+     
    - Create a new virtual environment
+
+     ```bash
+     source <(curl -L https://bit.ly/ezpz-utils) && ezpz_setup_env
+     ```
+     
    - Re-install dependencies
+
+     ```bash
+     python3 -m pip install -e "git+https://github.com/saforem2/ezpz"
+     ```
+
+   - Run simple test to verify python can launch distributed processes:
+  
+     ```bash
+     ezpz-test
+     ```
+     
    - Try re-running
-
-    ```bash
-    now=$(date +'%Y-%m-%d %H:%M:%S')
-    debug_dir="debugging/${now}"
-    mkdir -p "${debug_dir}" && cd "${debug_dir}"
-    echo "Debugging in $(pwd)"
-    ```
-
-
-
-```bash
-now=$(date +'%Y-%m-%d %H:%M:%S')
-debug_dir="debugging/${now}"
-mkdir -p "${debug_dir}" && cd "${debug_dir}"
-echo "Debugging in $(pwd)"
-
-git clone https://github.com/argonne-lcf/Megatron-DeepSpeed.git && cd Megatron-DeepSpeed
-
-source <(curl -L https://bit.ly/ezpz-utils) && ezpz_setup_env
-python3 -m pip install "git+https://github.com/saforem2/ezpz" --require-virtualenv
-
-# run simple test to verify distributed setup
-ezpz-test
-
-# Run simple example
-DATA_FILE_LIST=ALCF/data-lists/aurora/books.txt bash train_alcf.sh
-```
+  
+     ```bash
+     DATA_FILE_LIST=ALCF/data-lists/aurora/books.txt bash train_alcf.sh
+     ```
 
 [^alcf]: Yes, _any_ of the ALCF systems! e.g.: Aurora, Polaris, ThetaGPU, Sunspot, Sophia, Sirius, ...
 
