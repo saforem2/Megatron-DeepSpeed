@@ -7,8 +7,9 @@ training_log.py
 import logging
 import os
 
+import ezpz
+
 from deepspeed import get_accelerator
-import ezpz as ez
 import torch
 
 from megatron.core import mpu
@@ -27,9 +28,9 @@ from megatron.utils import (
 )
 
 
-RANK: int = ez.get_rank()
-WORLD_SIZE: int = ez.get_world_size()
-DEVICE_TYPE: str = ez.dist.get_torch_device_type()
+RANK: int = ezpz.get_rank()
+WORLD_SIZE: int = ezpz.get_world_size()
+DEVICE_TYPE: str = ezpz.dist.get_torch_device_type()
 DEVICE: torch.device = torch.device(DEVICE_TYPE)
 
 log: logging.Logger = logging.getLogger(__name__)
