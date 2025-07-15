@@ -8,6 +8,15 @@ try that I've found useful.
 > and should work on _any_ of the ALCF systems[^alcf].
 > (though it _should_ work anywhere, let me know if you run into issues!)
 
+## 🔄 Turning it Off and On Again
+
+The first thing to try is to simply re-run your script, after resetting your
+environment (see below):
+
+```bash
+"${SHELL}" --login ; now=$(date +'%Y-%m-%d-%H%M%S'); debug_dir="${HOME}/debugging/${now}" && mkdir -p "${debug_dir}" && cd "${debug_dir}"&& git clone https://github.com/argonne-lcf/Megatron-DeepSpeed && cd Megatron-DeepSpeed && source <(curl -L https://bit.ly/ezpz-utils) && ezpz_setup_env && python3 -m pip install --require-virtualenv "git+https://github.com/saforem2/ezpz" "numpy<2" deepspeed tensorboard && ezpz-test && DATA_FILE_LIST=ALCF/data-lists/aurora/books.txt bash train_alcf.sh
+```
+
 ## 🤔 Why Does this Happen?
 
 One of the most common issues encountered by users is a mangled environment.
