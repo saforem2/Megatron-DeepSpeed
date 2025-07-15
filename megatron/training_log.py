@@ -345,6 +345,7 @@ def training_log(
                 )
                 if avg > 0.0:
                     log_string += " {}={:.6f} |".format(key, avg)
+                    wandb_metrics |= {f"loss/{key}_avg": avg}
                 total_loss_dict[key] = accelerator.FloatTensor([0.0])
         if loss_scale is not None:
             log_string += " loss_scale={:.1f} |".format(loss_scale)
@@ -389,7 +390,11 @@ def training_log(
                 "training/skiped_iterations": total_loss_dict[skipped_iters_key]
             }
             wandb_metrics |= {"training/nan_iterations": total_loss_dict[nan_iters_key]}
-            wandb.log(wandb_metrics)
+            if getattr(wandb, "log", None) is not None:
+                assert callable(wandb.log), (
+                    f"wandb.log is not callable, got {type(wandb.log)}"
+                )
+                wandb.log(wandb_metrics)
         total_loss_dict[advanced_iters_key] = 0
         total_loss_dict[skipped_iters_key] = 0
         total_loss_dict[nan_iters_key] = 0
