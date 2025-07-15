@@ -29,8 +29,9 @@ from torch.optim.optimizer import (
 __all__ = ["ADOPT", "adopt"]
 
 
-#code from https://github.com/iShohei220/adopt/blob/main/src/adopt/adopt.py, copy pasted here because no pip and not sure about submodules
+# code from https://github.com/iShohei220/adopt/blob/main/src/adopt/adopt.py, copy pasted here because no pip and not sure about submodules
 class ADOPT(Optimizer):
+
     def __init__(
         self,
         params: ParamsT,
@@ -132,9 +133,7 @@ class ADOPT(Optimizer):
                 has_complex |= torch.is_complex(p)
                 params_with_grad.append(p)
                 if p.grad.is_sparse:
-                    raise RuntimeError(
-                        "ADOPT does not support sparse gradients"
-                    )
+                    raise RuntimeError("ADOPT does not support sparse gradients")
                 grads.append(p.grad)
 
                 state = self.state[p]
@@ -305,7 +304,7 @@ def _single_tensor_adopt(
             continue
 
         if weight_decay != 0 and decouple:
-            param.add_(param, alpha=-lr*weight_decay)
+            param.add_(param, alpha=-lr * weight_decay)
 
         denom = torch.clamp(exp_avg_sq.sqrt(), eps)
         normed_grad = grad.div(denom)
@@ -417,7 +416,7 @@ def _multi_tensor_adopt(
             continue
 
         if weight_decay != 0 and decouple:
-            torch._foreach_add_(device_params, device_params, alpha=-lr*weight_decay)
+            torch._foreach_add_(device_params, device_params, alpha=-lr * weight_decay)
 
         exp_avg_sq_sqrt = torch._foreach_sqrt(device_exp_avg_sqs)
         torch._foreach_maximum_(exp_avg_sq_sqrt, eps)
@@ -498,9 +497,7 @@ def adopt(
     eps: float,
     maximize: bool,
 ):
-    r"""Functional API that performs ADOPT algorithm computation.
-
-    """
+    r"""Functional API that performs ADOPT algorithm computation."""
     # Respect when the user inputs False/True for foreach or fused. We only want to change
     # the default when neither have been user-specified. Note that we default to foreach
     # and pass False to use_fused. This is not a mistake--we want to give the fused impl
