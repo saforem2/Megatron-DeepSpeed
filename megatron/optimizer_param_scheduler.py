@@ -10,15 +10,25 @@ from megatron import print_rank_0, get_args
 class OptimizerParamScheduler(object):
     """Anneals learning rate and weight decay"""
 
-    def __init__(self, optimizer, max_lr, min_lr,
-                 lr_warmup_steps, lr_decay_steps, lr_decay_style,
-                 start_wd, end_wd, wd_incr_steps, wd_incr_style,
-                 constant_lr = 0.0,
-                 lr_constant_steps=None,
-                 lr_cooldown_steps=None,
-                 timescale=None,
-                 use_checkpoint_opt_param_scheduler=True,
-                 override_opt_param_scheduler=False):
+    def __init__(
+        self,
+        optimizer,
+        max_lr,
+        min_lr,
+        lr_warmup_steps,
+        lr_decay_steps,
+        lr_decay_style,
+        start_wd,
+        end_wd,
+        wd_incr_steps,
+        wd_incr_style,
+        constant_lr=0.0,
+        lr_constant_steps=None,
+        lr_cooldown_steps=None,
+        timescale=None,
+        use_checkpoint_opt_param_scheduler=True,
+        override_opt_param_scheduler=False,
+    ):
         args = get_args()
         # Class values.
         self.optimizer = optimizer
@@ -37,7 +47,7 @@ class OptimizerParamScheduler(object):
         self.end_steps = lr_decay_steps
         assert self.lr_decay_steps > 0
         assert self.lr_warmup_steps < self.lr_decay_steps
-        assert self.lr_constant_steps <  self.lr_decay_steps
+        assert self.lr_constant_steps < self.lr_decay_steps
 
         self.lr_decay_tokens = args.lr_decay_tokens
         self.num_tokens = 0
@@ -139,73 +149,93 @@ class OptimizerParamScheduler(object):
 
         # --- Infinite Decay Options ---
         elif self.lr_decay_style in ["infinite-cosine", "infinite-inv-square-root"]:
-        # Compute iterations after warmup. (Using steps if lr_decay_tokens is None,
-        # otherwise tokens.)
+            # Compute iterations after warmup. (Using steps if lr_decay_tokens is None,
+            # otherwise tokens.)
             assert self.constant_lr > self.min_lr
             assert self.constant_lr <= self.max_lr
-            delta_lr =  (self.max_lr - self.constant_lr)
+            delta_lr = self.max_lr - self.constant_lr
             if self.lr_decay_tokens is None:
                 num_steps_ = self.num_steps - self.lr_warmup_steps
                 cooldown_steps_ = self.lr_cooldown_steps - self.lr_warmup_steps
                 if self.constant_steps is None:
-                    raise Exception('Constant LR steps need to be provided for infinite schedulers')
+                    raise Exception(
+                        "Constant LR steps need to be provided for infinite schedulers"
+                    )
                 if num_steps_ <= cooldown_steps_:
                     cooldown_ratio = float(num_steps_) / float(cooldown_steps_)
-                    
 
                     if self.lr_decay_style == "infinite_cosine":
                         coeff = 0.5 * (math.cos(math.pi * cooldown_ratio) + 1.0)
                         lr = self.constant_lr + delta_lr * coeff
                     else:  # infinite_inv_sqrt
+
                         def inv_f(t):
                             return (1 / math.sqrt(1 + (self.timescale * t))) - 1
+
                         coeff = inv_f(1) * inv_f(cooldown_ratio)
                         lr = self.start_lr - delta_lr * coeff
 
                 else:
                     num_steps_ = num_steps_ - cooldown_steps_
                     if num_steps_ <= self.lr_constant_steps:
-                    # Stay constant for constant_iters
+                        # Stay constant for constant_iters
                         lr = self.constant_lr
                     else:
-                # Exponential decay from constant_lr to min_lr.
-                
-                        end_steps_ = self.end_steps - self.warmup_steps - cooldown_steps_ - self.lr_constant_steps
+                        # Exponential decay from constant_lr to min_lr.
+
+                        end_steps_ = (
+                            self.end_steps
+                            - self.warmup_steps
+                            - cooldown_steps_
+                            - self.lr_constant_steps
+                        )
                         num_steps_ = num_steps_ - self.lr_constant_steps
-                        exp_factor = -math.log(self.min_lr / self.constant_lr) / end_steps_
+                        exp_factor = (
+                            -math.log(self.min_lr / self.constant_lr) / end_steps_
+                        )
                         lr = self.constant_lr * math.exp(-exp_factor * num_steps_)
-            
+
             # token based decay
             else:
                 num_tokens_ = self.num_tokens_ - self.lr_warmup_tokens
                 cooldown_tokens_ = self.lr_cooldown_tokens - self.lr_warmup_tokens
                 if self.constant_tokens is None:
-                    raise Exception('Constant LR tokens need to be provided for infinite schedulers')
+                    raise Exception(
+                        "Constant LR tokens need to be provided for infinite schedulers"
+                    )
                 if num_tokens_ <= cooldown_tokens_:
                     cooldown_ratio = float(num_tokens_) / float(cooldown_tokens_)
-                    
+
                     if self.lr_decay_style == "infinite_cosine":
                         coeff = 0.5 * (math.cos(math.pi * cooldown_ratio) + 1.0)
                         lr = self.constant_lr + delta_lr * coeff
                     else:  # infinite_inv_sqrt
+
                         def inv_f(t):
                             return (1 / math.sqrt(1 + (self.timescale * t))) - 1
+
                         coeff = inv_f(1) * inv_f(cooldown_ratio)
                         lr = self.start_lr - delta_lr * coeff
                 else:
                     num_tokens_ = num_tokens_ - cooldown_tokens_
-                
+
                     if num_tokens_ <= self.lr_constant_tokens:
                         # Stay constant for constant_tokens period
                         lr = self.constant_lr
                     else:
                         # Exponential decay from constant_lr to min_lr
-                    
-                        end_tokens_ = self.end_tokens - self.lr_warmup_tokens - cooldown_tokens_ - self.lr_constant_tokens
-                        num_tokens_ = num_tokens_ - constant_period
-                        exp_factor = -math.log(self.min_lr / self.constant_lr) / end_tokens_
-                        lr = self.constant_lr * math.exp(-exp_factor * num_tokens_)
 
+                        end_tokens_ = (
+                            self.end_tokens
+                            - self.lr_warmup_tokens
+                            - cooldown_tokens_
+                            - self.lr_constant_tokens
+                        )
+                        num_tokens_ = num_tokens_ - constant_period
+                        exp_factor = (
+                            -math.log(self.min_lr / self.constant_lr) / end_tokens_
+                        )
+                        lr = self.constant_lr * math.exp(-exp_factor * num_tokens_)
 
             return max(lr, self.min_lr)
 
