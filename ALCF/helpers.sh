@@ -190,9 +190,12 @@ setup_run_cmd() {
     # min_lr=$(python3 -c 'print(f"{2 / (10 ** 5):.8f}")')
     # "--min-lr ${LR:-${min_lr}}"  # 2e-5
     # "--min-lr ${MIN_LR:-"2e-6"}"  # 2e-5
-    export LR="${LR:-0.0002}"
-    export LR_DECAY_STYLE="${LR_DECAY_STYLE:-cosine}"
-    export LR_WARMUP_FRAC="${LR_WARMUP_FRAC:-0.05}"
+    LR="${LR:-0.0002}"
+    LR_DECAY_STYLE="${LR_DECAY_STYLE:-cosine}"
+    LR_WARMUP_FRAC="${LR_WARMUP_FRAC:-0.05}"
+    export LR
+    export LR_DECAY_STYLE
+    export LR_WARMUP_FRAC
     lr_flags=(
         "--lr ${LR}"
         "--lr-decay-style ${LR_DECAY_STYLE}"
@@ -552,13 +555,13 @@ get_grad_acc_steps_on_aurora() {
         exit 1
     fi
     nhosts=$(wc -l <"${hf}")
-    if [[ "${nhosts}" -ge 256 ]]; then
+    if [[ "${nhosts}" -ge 256 ]]; then                           #   n >= 256
         gas=1
-    elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then
+    elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then  # 128 <= n < 256
         gas=2
-    elif [[ 32 -lt "${nhosts}" && "${nhosts}" -lt 129 ]]; then
+    elif [[ 32 -lt "${nhosts}" && "${nhosts}" -lt 129 ]]; then   #  32 < n  < 128
         gas=4
-    elif [[ 16 -le "${nhosts}" && "${nhosts}" -le 32 ]]; then
+    elif [[ 16 -le "${nhosts}" && "${nhosts}" -le 32 ]]; then    #  16 <= n < 32
         gas=8
     else
         gas=16
@@ -605,6 +608,15 @@ get_model_arch_7B() {
     export NUM_KV_HEAD=${NUM_KV_HEAD:-8}             # GROUP ATTENTION
     export FFN_HIDDEN_SIZE=${FFN_HIDDEN_SIZE:-11008} # FFN HIDDEN SIZE
     export SEQ=${SEQ:-4096}                          # SEQ_LEN: 4096
+}
+
+get_model_arch_llama3_3B() {
+    export HEADS=32
+    export NLAYERS=28
+    export HIDDEN=3072
+    export NUM_KV_HEAD=8
+    export FFN_HIDDEN_SIZE=8192
+    export SEQ=8192
 }
 
 # get_model_arch_70B() {
@@ -735,6 +747,8 @@ setParams() {
     # printf "Using model architecture: %s\n" "$(printGreen "${model_arch}")"
     if [[ "${MODEL_ARCH:-}" == "70B" ]]; then
         get_model_arch_70B
+    elif [[ "${MODEL_ARCH:-}" == "3B" ]]; then
+        get_model_arch_llama3_3B
     else
         get_model_arch_7B
     fi
@@ -948,8 +962,11 @@ get_output_prefix() {
     pre="${pre}_seq${SEQ}_gb${GLOBAL_BATCH}"
     pre="${pre}_sp${SP}_pp${PP}_tp${TP}_${DTYPE}_opt${OPT}"
     pre="${pre}_lr${LR}_lwf${LR_WARMUP_FRAC}"
-    pre="${pre}_ntok${TRAIN_TOKENS}"
+    local num_tokens_in_billions
+    num_tokens_in_billions=$((TRAIN_TOKENS / 10 ** 9))
+    pre="${pre}_ntok${num_tokens_in_billions}B"
     if [[ -n "${TOKENIZER_TYPE:-}" ]]; then
+        # _tok="${TOKENIZER_TYPE/Tokenizer//}" # Strip "Tokenizer" suffix if present
         _tok=$(echo "${TOKENIZER_TYPE}" | sed 's/Tokenizer//g') # noqa
         pre="${pre}_tok${_tok}"
     fi
