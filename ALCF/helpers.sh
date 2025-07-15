@@ -187,23 +187,6 @@ setup_run_cmd() {
             "--ffn-hidden-size ${FFN_HIDDEN_SIZE}"
         )
     fi
-    # min_lr=$(python3 -c 'print(f"{2 / (10 ** 5):.8f}")')
-    # "--min-lr ${LR:-${min_lr}}"  # 2e-5
-    # "--min-lr ${MIN_LR:-"2e-6"}"  # 2e-5
-    LR="${LR:-0.0002}"
-    LR_DECAY_STYLE="${LR_DECAY_STYLE:-cosine}"
-    LR_WARMUP_FRAC="${LR_WARMUP_FRAC:-0.05}"
-    export LR
-    export LR_DECAY_STYLE
-    export LR_WARMUP_FRAC
-    lr_flags=(
-        "--lr ${LR}"
-        "--lr-decay-style ${LR_DECAY_STYLE}"
-        "--lr-warmup-fraction ${LR_WARMUP_FRAC}"
-    )
-    if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
-        lr_flags+=("--lr-decay-iters ${LR_DECAY_ITERS:-}")
-    fi
 
     tb_flags=()
     if [[ -z "${NO_TENSORBOARD:-}" ]]; then
@@ -771,6 +754,18 @@ setParams() {
     #     # Use best set of CCL env vars from Gordon Bell runs on Aurora
     #     set_ccl_vars_on_aurora
     # fi
+    # + --[LR Settings]------------------------------------------------------+
+    export LR="${LR:-0.0002}"
+    export LR_DECAY_STYLE="${LR_DECAY_STYLE:-cosine}"
+    export LR_WARMUP_FRAC="${LR_WARMUP_FRAC:-0.05}"
+    lr_flags=(
+        "--lr ${LR}"
+        "--lr-decay-style ${LR_DECAY_STYLE}"
+        "--lr-warmup-fraction ${LR_WARMUP_FRAC}"
+    )
+    if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
+        lr_flags+=("--lr-decay-iters ${LR_DECAY_ITERS:-}")
+    fi
     # +---[Run Settings]------------------------------------------------------+
     export ZERO_STAGE=${ZERO_STAGE:-1}                                                    # ZERO OFFLOADING STAGE
     export MICRO_BATCH=${MICRO_BATCH:-1}                                                  # MICRO BATCH SIZE
@@ -835,21 +830,6 @@ set_args() {
     fi
     ds_args+=("--deepspeed_config=${DS_CONFIG}")
     ds_args+=("--zero-stage=$ZERO_STAGE")
-
-    # if [[ "${ZERO_STAGE}" == 3 ]]; then
-    #     ds_args+=("--use-mics")
-    # fi
-
-    # ds_args=" "
-    # ds_args=" --deepspeed ${ds_args}"
-    # if [[ $PP == 1 ]]; then
-    #     ds_args=" --no-pipeline-parallel ${ds_args}"
-    # fi
-    # ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
-    # ds_args="--zero-stage=$ZERO_STAGE ${ds_args}"
-    # if [[ "${ZERO_STAGE}" == 3 ]]; then
-    #     ds_args="--use-mics ${ds_args}"
-    # fi
     if [[ -n "${USE_ACTIVATION_CHECKPOINTING:-}" ]]; then
         echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
         ds_args+=("--deepspeed-activation-checkpointing")
@@ -883,46 +863,6 @@ make_ds_hostfile() {
     cat "${hf}" >"${hostfile_deepspeed}"
     sed -e "s/$/ slots=${GPUS_PER_NODE}/" -i "${hostfile_deepspeed}"
 }
-
-###########################################
-# ezpz_setup
-#
-# 1. Clone [`saforem2/ezpz`](https://github.com/saforem2/ezpz) (if necessary)
-#    to `"${WORKING_DIR}/deps/ezpz/"`
-#
-# 2. Source [`ezpz/src/ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
-#    - This provides `{ezpz_setup_python, ezpz_setup_job}` (called below)
-#
-# 3. Call `ezpz_setup_python` (from `ezpz/bin/utils.sh`):
-#    - This will setup conda + virtual enviroment
-#
-# 4. Call `ezpz_setup_job` (from `ezpz/bin/utils.sh`):
-#    - This will parse `$PBS_*` variables and build launch cmd
-#
-# 3. Call `_ezpz_install` (from `Megatron-DeepSpeed/ALCF/helpers.sh`):
-#    - Install ezpz from `"${WORKING_DIR}/depz/ezpz/"`
-###########################################
-# ezpz_setup() {
-#     source <()
-#     ezdir="${WORKING_DIR}/deps/ezpz"
-#     if [[ -d "${ezdir}" ]]; then
-#         echo "Found ezpz in ${ezdir}"
-#     else
-#         mkdir -p "$(dirname "${ezdir}")"
-#         git clone https://github.com/saforem2/ezpz "${ezdir}"
-#     fi
-#     # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
-#     source "${ezdir}/src/ezpz/bin/utils.sh" || exit
-#     ezpz_setup_python
-#     ezpz_setup_job "$@"
-#     ezpz_pip_loc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
-#     if [[ -z "${ezpz_pip_loc:-}" ]]; then
-#         printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
-#         python3 -m pip install -e "${ezdir}" --require-virtualenv
-#     else
-#         printf "[ezpz_install] Found ezpz @ %s\n" "${ezpz_pip_loc}"
-#     fi
-# }
 
 #######################################################################
 # ezpz_test: Run simple test to make sure all nodes in working order
