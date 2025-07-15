@@ -76,21 +76,21 @@ def validate_args(args, defaults={}):
     args.tensor_model_parallel_size = min(
         args.tensor_model_parallel_size, args.world_size
     )
-    assert args.world_size % args.tensor_model_parallel_size == 0, (
-        "world size ({}) is not divisible by tensor model parallel size ({})".format(
-            args.world_size, args.tensor_model_parallel_size
-        )
+    assert (
+        args.world_size % args.tensor_model_parallel_size == 0
+    ), "world size ({}) is not divisible by tensor model parallel size ({})".format(
+        args.world_size, args.tensor_model_parallel_size
     )
     # Zero bubble pipeline is defined on deepspeed's scheduler
     if args.enable_zbh1_pipeline:
         assert args.deepspeed, "Use DeepSpeed to use zero-bubble H1 pipeline"
-        assert args.sequence_parallel == False, (
-            "Sequence Parallel not tested, proceed at own will by removing this line"
-        )
+        assert (
+            args.sequence_parallel == False
+        ), "Sequence Parallel not tested, proceed at own will by removing this line"
     if args.enable_zbh1_exact_semantics:
-        assert args.enable_zbh1_pipeline, (
-            "Exact semantics require ZBH1 pipeline enabled"
-        )
+        assert (
+            args.enable_zbh1_pipeline
+        ), "Exact semantics require ZBH1 pipeline enabled"
     # Pipeline model parallel size.
     args.pipeline_model_parallel_size = min(
         args.pipeline_model_parallel_size,
@@ -103,14 +103,14 @@ def validate_args(args, defaults={}):
     )
     # Checks.
     if args.no_pipeline_parallel:
-        assert args.pipeline_model_parallel_size == 1, (
-            "pipeline_model_parallel_size must be 1 if pipeline parallel is disabled"
-        )
+        assert (
+            args.pipeline_model_parallel_size == 1
+        ), "pipeline_model_parallel_size must be 1 if pipeline parallel is disabled"
 
     if args.ds_sequence_parallel_size > 1:
-        assert version.parse(deepspeed.__version__) >= version.parse("0.10.2"), (
-            "sequence parallelism requires DeepSpeed version 0.10.2+"
-        )
+        assert version.parse(deepspeed.__version__) >= version.parse(
+            "0.10.2"
+        ), "sequence parallelism requires DeepSpeed version 0.10.2+"
 
     model_parallel_size = (
         args.pipeline_model_parallel_size
@@ -155,13 +155,13 @@ def validate_args(args, defaults={}):
             )
 
     # Deprecated arguments
-    assert args.batch_size is None, (
-        "--batch-size argument is no longer valid, use --micro-batch-size instead"
-    )
+    assert (
+        args.batch_size is None
+    ), "--batch-size argument is no longer valid, use --micro-batch-size instead"
     del args.batch_size
-    assert args.warmup is None, (
-        "--warmup argument is no longer valid, use --lr-warmup-fraction instead"
-    )
+    assert (
+        args.warmup is None
+    ), "--warmup argument is no longer valid, use --lr-warmup-fraction instead"
     del args.warmup
     assert args.model_parallel_size is None, (
         "--model-parallel-size is no "
@@ -284,19 +284,19 @@ def validate_args(args, defaults={}):
         # If we use iteration-based training, make sure the
         # sample-based options are off.
         assert args.train_samples is None, "expected iteration-based training"
-        assert args.lr_decay_samples is None, (
-            "expected iteration-based learning rate decay"
-        )
-        assert args.lr_warmup_samples == 0, (
-            "expected iteration-based learning rate warmup"
-        )
-        assert args.rampup_batch_size is None, (
-            "expected no batch-size rampup for iteration-based training"
-        )
+        assert (
+            args.lr_decay_samples is None
+        ), "expected iteration-based learning rate decay"
+        assert (
+            args.lr_warmup_samples == 0
+        ), "expected iteration-based learning rate warmup"
+        assert (
+            args.rampup_batch_size is None
+        ), "expected no batch-size rampup for iteration-based training"
         if args.lr_warmup_fraction is not None:
-            assert args.lr_warmup_iters == 0, (
-                "can only specify one of lr-warmup-fraction and lr-warmup-iters"
-            )
+            assert (
+                args.lr_warmup_iters == 0
+            ), "can only specify one of lr-warmup-fraction and lr-warmup-iters"
 
     # Sample-based training.
     if args.train_samples:
@@ -306,20 +306,20 @@ def validate_args(args, defaults={}):
         assert args.lr_decay_iters is None, "expected sample-based learning rate decay"
         assert args.lr_warmup_iters == 0, "expected sample-based learnig rate warmup"
         if args.lr_warmup_fraction is not None:
-            assert args.lr_warmup_samples == 0, (
-                "can only specify one of lr-warmup-fraction and lr-warmup-samples"
-            )
+            assert (
+                args.lr_warmup_samples == 0
+            ), "can only specify one of lr-warmup-fraction and lr-warmup-samples"
 
     if args.num_layers is not None:
-        assert args.encoder_num_layers is None, (
-            "cannot have both num-layers and encoder-num-layers specified"
-        )
+        assert (
+            args.encoder_num_layers is None
+        ), "cannot have both num-layers and encoder-num-layers specified"
         args.encoder_num_layers = args.num_layers
     else:
         if not args.use_dataset_only:
-            assert args.encoder_num_layers is not None, (
-                "either num-layers or encoder-num-layers should be specified"
-            )
+            assert (
+                args.encoder_num_layers is not None
+            ), "either num-layers or encoder-num-layers should be specified"
             args.num_layers = args.encoder_num_layers
 
     # Check required arguments.
@@ -374,9 +374,9 @@ def validate_args(args, defaults={}):
     if args.fp16_lm_cross_entropy:
         assert args.fp16, "lm cross entropy in fp16 only support in fp16 mode."
     if args.fp32_residual_connection:
-        assert args.fp16 or args.bf16, (
-            "residual connection in fp32 only supported when using fp16 or bf16."
-        )
+        assert (
+            args.fp16 or args.bf16
+        ), "residual connection in fp32 only supported when using fp16 or bf16."
 
     if not args.use_dataset_only:
         if args.weight_decay_incr_style == "constant":
@@ -430,13 +430,13 @@ def validate_args(args, defaults={}):
 
     # Tranformer-Engine/FP8 related checking
     if args.fp8_e4m3 or args.fp8_hybrid:
-        assert args.transformer_impl == "transformer_engine", (
-            "transformer-engine required for fp8 training and inference"
-        )
+        assert (
+            args.transformer_impl == "transformer_engine"
+        ), "transformer-engine required for fp8 training and inference"
 
-    assert not (args.fp8_e4m3 and args.fp8_hybrid), (
-        "cannot train with both fp8 e4m3 and hybrid formatting"
-    )
+    assert not (
+        args.fp8_e4m3 and args.fp8_hybrid
+    ), "cannot train with both fp8 e4m3 and hybrid formatting"
 
     if args.recompute_granularity == "selective":
         assert args.recompute_method is None, (
