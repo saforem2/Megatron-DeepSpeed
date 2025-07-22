@@ -1492,7 +1492,7 @@ def _add_training_args(parser):
             "galoreadamw8bitperlayer",
             "ipex.fusedlamb",
             "ipex.lamb",
-            "dshampooadamwsgd",
+            "dshampooadamw",
             "sgdschedulefree",
             "sophiag",
             "adopt",

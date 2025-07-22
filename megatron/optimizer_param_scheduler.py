@@ -22,10 +22,10 @@ class OptimizerParamScheduler(object):
         end_wd,
         wd_incr_steps,
         wd_incr_style,
+        timescale=10.0,
         constant_lr=0.0,
         lr_constant_steps=None,
         lr_cooldown_steps=None,
-        timescale=None,
         use_checkpoint_opt_param_scheduler=True,
         override_opt_param_scheduler=False,
     ):
@@ -48,7 +48,8 @@ class OptimizerParamScheduler(object):
         assert self.lr_decay_steps > 0
         assert self.lr_warmup_steps < self.lr_decay_steps
         assert self.lr_constant_steps < self.lr_decay_steps
-
+ 
+        self.timescale=timescale
         self.lr_decay_tokens = args.lr_decay_tokens
         self.num_tokens = 0
         self.lr_warmup_tokens = args.lr_warmup_tokens
@@ -157,7 +158,7 @@ class OptimizerParamScheduler(object):
             if self.lr_decay_tokens is None:
                 num_steps_ = self.num_steps - self.lr_warmup_steps
                 cooldown_steps_ = self.lr_cooldown_steps - self.lr_warmup_steps
-                if self.constant_steps is None:
+                if self.lr_constant_steps is None:
                     raise Exception(
                         "Constant LR steps need to be provided for infinite schedulers"
                     )
@@ -173,7 +174,7 @@ class OptimizerParamScheduler(object):
                             return (1 / math.sqrt(1 + (self.timescale * t))) - 1
 
                         coeff = inv_f(1) * inv_f(cooldown_ratio)
-                        lr = self.start_lr - delta_lr * coeff
+                        lr = self.max_lr - delta_lr * coeff
 
                 else:
                     num_steps_ = num_steps_ - cooldown_steps_
@@ -215,7 +216,7 @@ class OptimizerParamScheduler(object):
                             return (1 / math.sqrt(1 + (self.timescale * t))) - 1
 
                         coeff = inv_f(1) * inv_f(cooldown_ratio)
-                        lr = self.start_lr - delta_lr * coeff
+                        lr = self.max_lr - delta_lr * coeff
                 else:
                     num_tokens_ = num_tokens_ - cooldown_tokens_
 
