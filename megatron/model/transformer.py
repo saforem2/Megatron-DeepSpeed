@@ -1342,7 +1342,7 @@ class ParallelTransformerLayer(MegatronModule):
         layernorm_output = self.input_layernorm(hidden_states)
 
         # Self attention.
-        try:
+        if self.ds_sequence_parallel_fpdt_offloading:
             attention_output, attention_bias = \
                 self.self_attention(
                     layernorm_output,
@@ -1350,7 +1350,7 @@ class ParallelTransformerLayer(MegatronModule):
                     inference_params=inference_params,
                     rotary_pos_emb=rotary_pos_emb,
                     cpu_offloading=self.ds_sequence_parallel_fpdt_offloading)
-        except TypeError:
+        else:
             attention_output, attention_bias = \
                 self.self_attention(
                     layernorm_output,
