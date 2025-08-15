@@ -124,7 +124,7 @@ setup() {
     check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
     dfl="${DATA_FILE_LIST:-"${PBS_O_WORKDIR:-${HERE}}/ALCF/data-lists/$(ezpz_get_machine_name)/dolma.txt"}"
     # Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
-    tok="${TOKENIZER_TYPE:-Llama2Tokenizer}"
+    tok="${TOKENIZER_TYPE:-HFTokenizer}"
     setup_tokenizer_and_data "${tok}" "${dfl}" || exit
     make_data || exit
     # Print job info
@@ -257,10 +257,12 @@ setup_run_cmd() {
     declare -A arch_map
     printf "==== ARCHITECTURE ====\n"
     arch_map=(
+        ["MODEL_ARCH"]="${MODEL_ARCH}"
         ["TP"]="${TP}"
         ["PP"]="${PP}"
         ["SP"]="${SP}"
         ["DP"]="${DP}"
+        ["ZERO"]="${ZERO_STAGE}"
         ["MBS"]="${MICRO_BATCH}"
         ["GAS"]="${GRAD_ACC_STEPS}"
         ["GBS"]="${GLOBAL_BATCH}"
@@ -591,16 +593,103 @@ get_model_arch_7B() {
     export NUM_KV_HEAD=${NUM_KV_HEAD:-8}             # GROUP ATTENTION
     export FFN_HIDDEN_SIZE=${FFN_HIDDEN_SIZE:-11008} # FFN HIDDEN SIZE
     export SEQ=${SEQ:-4096}                          # SEQ_LEN: 4096
+    export MODEL_ARCH="AuroraGPT-7B"
 }
 
 get_model_arch_llama3_3B() {
-    export HEADS=32
+    export HEADS=24
     export NLAYERS=28
     export HIDDEN=3072
     export NUM_KV_HEAD=8
     export FFN_HIDDEN_SIZE=8192
     export SEQ=8192
+    export MODEL_ARCH="llama3-3B"
+    # [NOTE]-----------------------------------
+    # - OOM on Aurora with:
+    #   - Config 1:
+    #     - ZERO_STAGE=1
+    #     - USE_ACTIVATION_CHECKPOINTING=0
+    #   - Config 2:
+    #     - ZERO_STAGE=0
+    #     - USE_ACTIVATION_CHECKPOINTING=1
+    #
+    #   - hmmmmm 🤔 seems odd???
+    #     - suspect due to SEQ_LEN=8192
+    #       (as opposed to 4096 for 7B model)
+    # -----------------------------------------
 }
+
+
+get_model_arch_llama3_3B_customNlayers() {
+    # if [[ "$#" -ne 1 ]]; then
+    #     log_message ERROR "Expected 1 argument (nLayers), received: $*"
+    #     return 1
+    # fi
+    export HEADS=24
+    export NLAYERS="${NLAYERS:-28}" # default to 28 layers
+    export HIDDEN=3072
+    export NUM_KV_HEAD=8
+    export FFN_HIDDEN_SIZE=8192
+    export SEQ=8192
+    export MODEL_ARCH="llama3-3B-nLayers${NLAYERS}"
+}
+
+get_model_arch_smollm3_3B() {
+    export HEADS=16
+    export NLAYERS=36
+    export HIDDEN=2048
+    export NUM_KV_HEAD=4
+    export FFN_HIDDEN_SIZE=11008
+    export SEQ=8192
+    export MODEL_ARCH="smollm3-3B"
+}
+
+# get_model_arch_smollm3_3B_custom() {
+#     export HEADS=16
+#     export NLAYERS=24
+#     export HIDDEN=2048
+#     export NUM_KV_HEAD=4
+#     export FFN_HIDDEN_SIZE=11008
+#     export SEQ=8192
+#     export MODEL_ARCH="smollm3-3B-nLayers24"
+# }
+
+get_model_arch_smollm3_3B_custom_nLayers() {
+  # if [[ "$#" -ne 1 ]]; then
+  #   log_message ERROR "Expected 1 argument (nLayers), received: $*"
+  #   return 1
+  # fi
+  # local nlayers="$1"
+  export HEADS=16
+  export NLAYERS="${NLAYERS:-24}" # default to 24 layers
+  export HIDDEN=2048
+  export NUM_KV_HEAD=4
+  export FFN_HIDDEN_SIZE=11008
+  export SEQ=8192
+  export MODEL_ARCH="smollm3-nLayers${NLAYERS}"
+}
+
+get_model_arch_phi4_mini() {
+    export HEADS=32
+    export NLAYERS=24
+    export HIDDEN=3072
+    export NUM_KV_HEAD=8
+    export FFN_HIDDEN_SIZE=8192
+    export SEQ=8192
+    export MODEL_ARCH="phi4-mini"
+}
+
+get_model_arch_phi4_mini_custom_nLayers() {
+  export HEADS=32
+  export NLAYERS="${NLAYERS:-24}" # default to 24 layers
+  export HIDDEN=3072
+  export NUM_KV_HEAD=8
+  export FFN_HIDDEN_SIZE=8192
+  export SEQ=8192
+  export MODEL_ARCH="phi4-mini-nLayers${NLAYERS}"
+}
+
+
 
 # get_model_arch_70B() {
 #     # 70B
@@ -625,6 +714,7 @@ get_model_arch_70B() {
     FFN_HIDDEN_SIZE=28672
     HIDDEN=8192
     SEQ_LEN=8192
+    export MODEL_ARCH="AuroraGPT-70B"
 }
 
 get_model_arch_33B() {
@@ -641,6 +731,7 @@ get_model_arch_33B() {
     export FFN_HIDDEN_SIZE=11076
     export SEQ=4096
     export NUM_KV_HEAD=6
+    export MODEL_ARCH="AuroraGPT-33B"
 }
 
 ##############################################################################
@@ -726,15 +817,31 @@ setParams() {
             FLASH_ARG="--use-flash-attn-v2"
         fi
     fi
-    # model_arch="${MODEL_ARCH:-7B}"
-    # printf "Using model architecture: %s\n" "$(printGreen "${model_arch}")"
-    if [[ "${MODEL_ARCH:-}" == "70B" ]]; then
-        get_model_arch_70B
-    elif [[ "${MODEL_ARCH:-}" == "3B" ]]; then
-        get_model_arch_llama3_3B
-    else
-        get_model_arch_7B
-    fi
+    ma="${MODEL_ARCH:-7B}"
+    case "${ma}" in
+        # "70B" | "llama-3.1-70B" | "llama-3.1-70b" | "llama-3.2-70B" | "llama-3.2-70b")
+        "70B")
+            get_model_arch_70B
+            ;;
+        "33B" | "llama-3.2-33B" | "llama-3.2-33b")
+            get_model_arch_33B
+            ;;
+        "smollm3-3B" | "smollm3_3B")
+            get_model_arch_smollm3_3B_custom_nLayers
+            ;;
+        "phi4-mini" | "phi4_mini")
+            get_model_arch_phi4_mini_custom_nLayers
+            ;;
+        "llama3-3B" | "llama-3B")
+            get_model_arch_llama3_3B_customNlayers
+            ;;
+        "7B" | "AuroraGPT-7B" | "aurora-gpt-7b" | "llama-3.1-7B" | "llama-3.1-7b" | "llama-3.2-7B" | "llama-3.2-7b")
+            get_model_arch_7B
+            ;;
+        *)
+            get_model_arch_7B
+            ;;
+    esac
     export TP="${TP}"
     export PP="${PP:-1}"
     export SP="${SP:-1}"
@@ -783,14 +890,14 @@ setParams() {
         printf "TRAIN_TOKENS=%s (=%sB tokens)\n" "${TRAIN_TOKENS}" "$((TRAIN_TOKENS / 10 ** 9))"
         printf "TRAIN_ITERS=%s\n" "${TRAIN_ITERS}"
     elif [[ -z "${TRAIN_ITERS:-${TRAIN_ITER:-}}" ]]; then
-        export TRAIN_TOKENS=${TRAIN_TOKENS:-2000000000000}
+        export TRAIN_TOKENS=${TRAIN_TOKENS:-4673780159710}
         export TRAIN_ITERS=$((TRAIN_TOKENS / SEQ / GLOBAL_BATCH))
         printf "TRAIN_TOKENS=%s (=%sB tokens)\n" "${TRAIN_TOKENS}" "$((TRAIN_TOKENS / 10 ** 9))"
         printf "TRAIN_ITERS=%s\n" "${TRAIN_ITERS}"
     else
         export TRAIN_ITERS="${TRAIN_ITERS:-${TRAIN_ITER:-}}"
     fi
-    export MODEL_TYPE="llama-gb${GLOBAL_BATCH}-seq${SEQ}-pp${PP}-tp${TP}-${NLAYERS}layers-${HEADS}heads-${HIDDEN}hidden" # STRING FOR IDENTIFYING MODEL
+    export MODEL_TYPE="${MODEL_ARCH:-AuroraGPT}-gb${GLOBAL_BATCH}-seq${SEQ}-pp${PP}-tp${TP}-${NLAYERS}layers-${HEADS}heads-${HIDDEN}hidden" # STRING FOR IDENTIFYING MODEL
     # NOTE: [2024-07-10] #####################################################
     # - [sam]: For whatever reason, it seems that using
     #   sequence-parallelism (SP) > 1 is INCOMPATIBLE with
@@ -830,26 +937,31 @@ set_args() {
     fi
     ds_args+=("--deepspeed_config=${DS_CONFIG}")
     ds_args+=("--zero-stage=$ZERO_STAGE")
-    if [[ -n "${USE_ACTIVATION_CHECKPOINTING:-}" ]]; then
+    # if [[ -n "${USE_ACTIVATION_CHECKPOINTING:-}" ]]; then
+    if [[ "${USE_ACTIVATION_CHECKPOINTING:-}" == 1 || "${USE_ACTIVATION_CHECKPOINTING:-}" == "true" ]]; then
         echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
         ds_args+=("--deepspeed-activation-checkpointing")
+        ds_args+=(
+          "--checkpoint-activations"
+          "--checkpoint-num-layers=${ACT_CKPT_NUM_LAYERS:-1}"
+        )
         # ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
         # --checkpoint-activations \
         # --deepspeed-activation-checkpointing
     fi
     export ds_args
     # ---------------------------------------------------------------
-    gpt_args=()
-    # we are now using activation checkpoint provided by megatron, see below.
-    # ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
-    if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
-        echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
-        gpt_args+=(
-            "--checkpoint-activations"
-            "--checkpoint-num-layers ${ACT_CKPT_NUM_LAYERS}"
-        )
-    fi
-    export gpt_args
+    # gpt_args=()
+    # # we are now using activation checkpoint provided by megatron, see below.
+    # # ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
+    # if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
+    #     echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
+    #     gpt_args+=(
+    #         "--checkpoint-activations"
+    #         "--checkpoint-num-layers ${ACT_CKPT_NUM_LAYERS}"
+    #     )
+    # fi
+    # export gpt_args
 }
 
 make_ds_hostfile() {
@@ -897,11 +1009,12 @@ saveDSenv() {
 
 get_output_prefix() {
     # ---- Specify output location --------------------------------
-    pre="ws${WORLD_SIZE}_ds_stage${ZERO_STAGE}_nl${NLAYERS}"
-    pre="${pre}_hs${HIDDEN}_mb${MICRO_BATCH}"
-    pre="${pre}_seq${SEQ}_gb${GLOBAL_BATCH}"
-    pre="${pre}_sp${SP}_pp${PP}_tp${TP}_${DTYPE}_opt${OPT}"
-    pre="${pre}_lr${LR}_lwf${LR_WARMUP_FRAC}"
+    pre="ws${WORLD_SIZE}-ds-stage${ZERO_STAGE}-nl${NLAYERS}"
+    pre="${pre}-hs${HIDDEN}-mb${MICRO_BATCH}"
+    pre="${pre}-seq${SEQ}-gb${GLOBAL_BATCH}"
+    pre="${pre}-sp${SP}-pp${PP}-tp${TP}-${DTYPE}-opt${OPT}"
+    pre="${pre}-lr${LR}-lwf${LR_WARMUP_FRAC}"
+    pre="${MODEL_ARCH:-AuroraGPT}-${pre}"
     local num_tokens_in_billions
     num_tokens_in_billions=$((TRAIN_TOKENS / 10 ** 9))
     pre="${pre}_ntok${num_tokens_in_billions}B"
@@ -909,6 +1022,12 @@ get_output_prefix() {
         # _tok="${TOKENIZER_TYPE/Tokenizer//}" # Strip "Tokenizer" suffix if present
         _tok=$(echo "${TOKENIZER_TYPE}" | sed 's/Tokenizer//g') # noqa
         pre="${pre}_tok${_tok}"
+    fi
+    if [[ -n "${TOKENIZER_MODEL:-}" ]]; then
+        # _tm=$(echo "${TOKENIZER_MODEL}" | sed 's/\/_/g') # noqa
+        # replace slashes with underscores
+        _tm="${TOKENIZER_MODEL//\//_}" # noqa
+        pre="${pre}_tm${_tm}"
     fi
     if [[ -n "${LR_DECAY_ITERS}" ]]; then
         pre="${pre}_ldi${LR_DECAY_ITERS}"
@@ -1125,15 +1244,17 @@ setup_tokenizer_and_data() {
             "--merge-file ${MERGE_FILE}"
         )
     else
-        export TOKENIZER_TYPE="${TOKENIZER_TYPE:-Llama2Tokenizer}"
-        tm="${WORKING_DIR}/ALCF/tokenizer.model"           # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
+        # export TOKENIZER_TYPE="${TOKENIZER_TYPE:-Llama2Tokenizer}"
+        # tm="${WORKING_DIR}/ALCF/tokenizer.model"           # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
+        export TOKENIZER_TYPE="${TOKENIZER_TYPE:-HFTokenizer}"
+        tm="${TOKENIZER_MODEL:-google/gemma-7B}"           # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
         export TOKENIZER_MODEL="${TOKENIZER_MODEL:-${tm}}" # USE TOKENIZER_MODEL from env, else fallback from ^
         _tokenizer_flags+=(
             "--tokenizer-type ${TOKENIZER_TYPE}"
             "--tokenizer-model ${TOKENIZER_MODEL}"
         )
         # if [[ "${TOKENIZER_TYPE}" != "GPT2" ]]; then
-        echo "Using tokenizer: ${TOKENIZER_TYPE}. Setting up data with ${DATA_FILE_LIST:-}"
+        echo "Using tokenizer: ${TOKENIZER_TYPE}. Setting up data with ${dfl}"
         setData "${dfl}" || exit
     fi
     export DATA_FLAGS="${_data_flags[*]:-}"
