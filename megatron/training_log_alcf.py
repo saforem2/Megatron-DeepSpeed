@@ -674,6 +674,7 @@ def training_log(
                 )
                 if avg > 0.0:
                     log_string += " {}={:.6f} |".format(key, avg)
+                wandb_metrics[f"loss/{key}"] = avg
                 total_loss_dict[key] = torch.tensor([0.0]).to(DEVICE)
         if loss_scale is not None:
             log_string += " loss_scale={:.1f} |".format(loss_scale)
