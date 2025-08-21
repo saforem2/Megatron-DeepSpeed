@@ -299,61 +299,6 @@ save_dotenv() {
     fi
 }
 
-#######################################################################
-## get_machine_name:
-##
-## Return current machine name, as lowercase string
-##
-## Example:
-##   ```bash
-##   $ machine_name=$(get_machine_name)
-##   $ echo "machine_name: ${machine_name}"
-##   ```
-#######################################################################
-#get_machine_name() {
-#    if [[ $(hostname) == x4* || $(hostname) == aurora* ]]; then
-#        machine="aurora"
-#    elif [[ $(hostname) == x1* || $(hostname) == uan* ]]; then
-#        machine="sunspot"
-#    elif [[ $(hostname) == x3* || $(hostname) == polaris* ]]; then
-#        if [[ "${PBS_O_HOST}" == sirius* ]]; then
-#            machine="sirius"
-#        else
-#            machine="polaris"
-#        fi
-#    elif [[ $(hostname) == sophia* ]]; then
-#        machine="sophia"
-#    elif [[ $(hostname) == nid* ]]; then
-#        machine="perlmutter"
-#    else
-#        machine=$(hostname)
-#    fi
-#    echo "${machine}"
-#}
-#
-#get_machine() {
-#    machine=$(hostname)
-#    if [[ $(hostname) == x4* ]]; then
-#        machine="aurora"
-#    elif [[ $(hostname) == x1* ]]; then
-#        machine="sunspot"
-#    elif [[ $(hostname) == x3* ]]; then
-#        if [[ "${PBS_O_HOST}" == sirius* ]]; then
-#            machine="sirius"
-#        else
-#            machine="polaris"
-#        fi
-#    elif [[ $(hostname) == sophia* ]]; then
-#        machine="sophia"
-#    elif [[ $(hostname) == nid* ]]; then
-#        machine="perlmutter"
-#    else
-#        echo "Unknown MACHINE. Setting MACHINE to $(hostname) and continuing..."
-#    fi
-#    export MACHINE="${machine}"
-#    printf "Running on: %s\n" "$(printBlue "${MACHINE}")"
-#}
-
 check_and_kill_if_running() {
     RUNNING_PIDS=$(lsof -i:29500 -Fp | head -n 1 | sed 's/^p//')
     if [[ -n "${RUNNING_PIDS}" ]]; then
@@ -440,21 +385,6 @@ setupLauncher() {
     printf "Launching with: %s\n" "$(printRed "${dist_launcher}")"
     printf " %s" "$(printMagenta "${LAUNCHER}")"
 }
-
-# set_lr_args() {
-#     export LR=${LR:-0.0002}                       # LEARNING_RATE
-#     export LR_WARMUP_FRAC=${LR_WARMUP_FRAC:-0.05} # LEARNING RATE WARMUP
-#     export LR_DECAY_ITERS=${LR_DECAY_ITERS:-}     # LR DECAY ITERS
-#     LR_ARGS="--lr ${LR} --lr-decay-style cosine"
-#     if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
-#         LR_ARGS="${LR_ARGS} --lr-decay-iters ${LR_DECAY_ITERS}"
-#     fi
-#     if [[ -n "${LR_WARMUP_FRAC}" ]]; then
-#         LR_ARGS="${LR_ARGS} --lr-warmup-fraction ${LR_WARMUP_FRAC}"
-#     fi
-#     echo "LR_ARGS: ${LR_ARGS}"
-#     export LR_ARGS="${LR_ARGS}"
-# }
 
 #########################################################################
 # `get_batch_size_on_polaris`: Identify MICRO_BATCH to use on Polaris.
@@ -593,34 +523,6 @@ get_model_arch_llama3_3B() {
     export FFN_HIDDEN_SIZE=8192
     export SEQ=8192
     export MODEL_ARCH="llama3-3B"
-    # [NOTE]-----------------------------------
-    # - OOM on Aurora with:
-    #   - Config 1:
-    #     - ZERO_STAGE=1
-    #     - USE_ACTIVATION_CHECKPOINTING=0
-    #   - Config 2:
-    #     - ZERO_STAGE=0
-    #     - USE_ACTIVATION_CHECKPOINTING=1
-    #
-    #   - hmmmmm 🤔 seems odd???
-    #     - suspect due to SEQ_LEN=8192
-    #       (as opposed to 4096 for 7B model)
-    # -----------------------------------------
-}
-
-
-get_model_arch_llama3_3B_customNlayers() {
-    # if [[ "$#" -ne 1 ]]; then
-    #     log_message ERROR "Expected 1 argument (nLayers), received: $*"
-    #     return 1
-    # fi
-    export HEADS=24
-    export NLAYERS="${NLAYERS:-28}" # default to 28 layers
-    export HIDDEN=3072
-    export NUM_KV_HEAD=8
-    export FFN_HIDDEN_SIZE=8192
-    export SEQ=8192
-    export MODEL_ARCH="llama3-3B-nLayers${NLAYERS}"
 }
 
 get_model_arch_smollm3_3B() {
@@ -633,31 +535,6 @@ get_model_arch_smollm3_3B() {
     export MODEL_ARCH="smollm3-3B"
 }
 
-# get_model_arch_smollm3_3B_custom() {
-#     export HEADS=16
-#     export NLAYERS=24
-#     export HIDDEN=2048
-#     export NUM_KV_HEAD=4
-#     export FFN_HIDDEN_SIZE=11008
-#     export SEQ=8192
-#     export MODEL_ARCH="smollm3-3B-nLayers24"
-# }
-
-get_model_arch_smollm3_3B_custom_nLayers() {
-  # if [[ "$#" -ne 1 ]]; then
-  #   log_message ERROR "Expected 1 argument (nLayers), received: $*"
-  #   return 1
-  # fi
-  # local nlayers="$1"
-  export HEADS=16
-  export NLAYERS="${NLAYERS:-24}" # default to 24 layers
-  export HIDDEN=2048
-  export NUM_KV_HEAD=4
-  export FFN_HIDDEN_SIZE=11008
-  export SEQ=8192
-  export MODEL_ARCH="smollm3-nLayers${NLAYERS}"
-}
-
 get_model_arch_phi4_mini() {
     export HEADS=32
     export NLAYERS=24
@@ -666,6 +543,27 @@ get_model_arch_phi4_mini() {
     export FFN_HIDDEN_SIZE=8192
     export SEQ=8192
     export MODEL_ARCH="phi4-mini"
+}
+
+get_model_arch_llama3_3B_customNlayers() {
+    export HEADS=24
+    export NLAYERS="${NLAYERS:-28}" # default to 28 layers
+    export HIDDEN=3072
+    export NUM_KV_HEAD=8
+    export FFN_HIDDEN_SIZE=8192
+    export SEQ=8192
+    export MODEL_ARCH="llama3-3B-nLayers${NLAYERS}"
+}
+
+
+get_model_arch_smollm3_3B_custom_nLayers() {
+  export HEADS=16
+  export NLAYERS="${NLAYERS:-24}" # default to 24 layers
+  export HIDDEN=2048
+  export NUM_KV_HEAD=4
+  export FFN_HIDDEN_SIZE=11008
+  export SEQ=8192
+  export MODEL_ARCH="smollm3-nLayers${NLAYERS}"
 }
 
 get_model_arch_phi4_mini_custom_nLayers() {
@@ -677,8 +575,6 @@ get_model_arch_phi4_mini_custom_nLayers() {
   export SEQ=8192
   export MODEL_ARCH="phi4-mini-nLayers${NLAYERS}"
 }
-
-
 
 # get_model_arch_70B() {
 #     # 70B
