@@ -40,19 +40,20 @@
         bash train_alcf.sh
     ```
 
-
 - Llama3 Architecture:
 
     ```llama3-architecture.yaml
     HEADS: 24
     HIDDEN: 3072
     FFN_HIDDEN_SIZE: 8192
-    NLAYERS: XX
+    NLAYERS: 28  # default
     NUM_KV_HEAD: 8
     SEQ: 8192
     USE_ACTIVATION_CHECKPOINTING: 0
     ZERO: 0
     ```
+
+  - [meta-llama/Llama-3.2-3B/`config.json`](https://huggingface.co/meta-llama/Llama-3.2-3B/blob/main/config.json)
 
 - SmolLM3 Architecture:
 
@@ -60,14 +61,14 @@
     HEADS: 16
     HIDDEN: 2048
     FFN_HIDDEN_SIZE: 11008
-    NLAYERS: XX
+    NLAYERS: 36
     NUM_KV_HEAD: 4
     SEQ: 8192
     USE_ACTIVATION_CHECKPOINTING: 0
     ZERO: 0
     ```
 
-[^lmax]: This is (~ roughly) at memory capacity
+  - [HuggingFaceTB/SmolLM3-3B-Base/`config.json`](https://huggingface.co/HuggingFaceTB/SmolLM3-3B-Base/blob/main/config.json)
 
 ## Raw Data
 
