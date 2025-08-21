@@ -2,28 +2,13 @@
 ###############################################################################
 # [`ALCF/helpers.sh`](https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/ALCF/helpers.sh)
 #
-# Contains helper functions for launching `../train_llama_alcf.sh`
-#
-# To use, on any of {Polaris, Aurora, Sunspot} @ ALCF:
-#
-#     ```bash
-#     $ git clone https://github.com/argonne-lcf/Megatron-DeepSpeed
-#     $ cd Megatron-DeepSpeed
-#     $ export PBS_O_WORKDIR=$(pwd) && source ALCF/helpers.sh && setup
-#     ```
-#
-# and this will, automatically:
-#
-# 1. Setup python (conda + virtual environment)
-#
-# 2. Parse `$PBS_*` env vars to build appropriate `alias launch='mpiexec ...'`
-#    command for launching across all GPUs in our active PBS job.
+# Contains helper functions for launching `../train_alcf.sh`
 ###############################################################################
 
 ###############################################################################
 # Source:
 # [`ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
-source <(curl -L https://bit.ly/ezpz-utils) > /dev/null || exit
+source <(curl -L https://bit.ly/ezpz-utils) > /dev/null || return 1
 ezpz_setup_job >/dev/null || exit
 ###############################################################################
 
@@ -218,41 +203,45 @@ setup_run_cmd() {
         "${ds_args[@]}"
         "${gpt_args[@]}"
         "--${DTYPE}"
-        "--shuffle-sample-in-corpus"
-        "--blend-sample-in-corpus"
         "--accumulate-allreduce-grads-in-fp32"
+        "--adjust-word-embedding-init"
+        "--adam-beta1=${ADAM_BETA1:-0.9}"
+        "--adam-beta2=${ADAM_BETA2:-0.95}"
+        "--adam-eps=${ADAM_EPS:-0.00001}"
+        "--blend-sample-in-corpus"
+        "--clip-grad=${CLIP_GRAD:-1.0}"
+        "--data-cache-path=${data_cache_path}"
+        "--data-file-list=${DATA_FILE_LIST:-${dfl_fallback}}"
+        "--distributed-backend=${BE}"
+        "--ds-sequence-parallel-size=${SP}"
+        "--eval-interval=${EVAL_INTERVAL:-100}"
+        "--eval-iters=${EVAL_ITERS:-20}"
+        "--global-batch-size=${GLOBAL_BATCH}"
+        "--hidden-size=${HIDDEN}"
+        "--init-method-std=$(echo "scale=6; sqrt(2 / (5 * ${HIDDEN}))" | bc -l)"
+        "--log-interval=${LOG_INTERVAL:-1}"
+        "--load=${LOAD:-${CKPT_DIR}}"
+        "--max-position-embeddings=${SEQ}"
+        "--micro-batch-size=${MICRO_BATCH}"
         "--no-bias-gelu-fusion"
         "--no-bias-dropout-fusion"
         "--no-masked-softmax-fusion"
         "--no-gradient-accumulation-fusion"
-        "--optimizer=${OPT}"
-        "--tensor-model-parallel-size=${TP}"
-        "--pipeline-model-parallel-size=${PP}"
-        "--max-position-embeddings=${SEQ}"
-        "--micro-batch-size=${MICRO_BATCH}"
-        "--ds-sequence-parallel-size=${SP}"
-        "--global-batch-size=${GLOBAL_BATCH}"
-        "--split=${TRAIN_SPLIT:-990},${VAL_SPLIT:-10},${TEST_SPLIT:-0}"
-        "--timing-log-level=${TIMING_LOG_LEVEL:-1}"
-        "--eval-interval=${EVAL_INTERVAL:-100}"
-        "--eval-iters=${EVAL_ITERS:-20}"
-        "--save-interval=${SAVE_INTERVAL:-50}"
-        "--log-interval=${LOG_INTERVAL:-1}"
-        "--save=${SAVE:-${CKPT_DIR}}"
-        "--load=${LOAD:-${CKPT_DIR}}"
-        "--seq-length=${SEQ}"
         "--num-layers=${NLAYERS}"
-        "--hidden-size=${HIDDEN}"
-        "--train-iters=${TRAIN_ITERS}"
-        "--distributed-backend=${BE}"
-        "--weight-decay=${WEIGHT_DECAY:-0.1}"
-        "--adam-beta1=${ADAM_BETA1:-0.9}"
-        "--adam-beta2=${ADAM_BETA2:-0.95}"
-        "--adam-eps=${ADAM_EPS:-0.00001}"
-        "--clip-grad=${CLIP_GRAD:-1.0}"
         "--num-attention-heads=${HEADS}"
-        "--data-cache-path=${data_cache_path}"
-        "--data-file-list=${DATA_FILE_LIST:-${dfl_fallback}}"
+        "--optimizer=${OPT}"
+        "--pipeline-model-parallel-size=${PP}"
+        "--rotary-position-embeddings-theta=${ROPE_THETA:-50000}"
+        "--save=${SAVE:-${CKPT_DIR}}"
+        "--seq-length=${SEQ}"
+        "--split=${TRAIN_SPLIT:-990},${VAL_SPLIT:-10},${TEST_SPLIT:-0}"
+        "--shuffle-sample-in-corpus"
+        "--save-interval=${SAVE_INTERVAL:-50}"
+        "--train-iters=${TRAIN_ITERS}"
+        "--tensor-model-parallel-size=${TP}"
+        "--timing-log-level=${TIMING_LOG_LEVEL:-1}"
+        "--weight-decay=${WEIGHT_DECAY:-0.1}"
+        "--word-embedding-init-std=0.632455532"
     )
     declare -A arch_map
     printf "==== ARCHITECTURE ====\n"
