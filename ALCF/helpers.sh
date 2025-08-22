@@ -221,7 +221,7 @@ setup_run_cmd() {
         "--init-method-std=$(echo "scale=6; sqrt(2 / (5 * ${HIDDEN}))" | bc -l)"
         "--log-interval=${LOG_INTERVAL:-1}"
         "--load=${LOAD:-${CKPT_DIR}}"
-        "--max-position-embeddings=${SEQ}"
+        "--max-position-embeddings=$(( 16 * SEQ ))"
         "--micro-batch-size=${MICRO_BATCH}"
         "--no-bias-gelu-fusion"
         "--no-bias-dropout-fusion"
