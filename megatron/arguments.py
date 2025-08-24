@@ -1203,6 +1203,14 @@ def _add_regularization_args(parser):
         "--muonadamw-eps", type=float, default=1e-12, help="epsilon for internal adamw"
     )
 
+    group.add_argument(
+        "--muonclip-t", type=float, default=100.0, help="qk threshold"
+    )
+
+    group.add_argument(
+        "--muonclip-alpha", type=float, default=0.5, help="split exponent for (Wq, Wk)"
+    )
+
     return parser
 
 
@@ -1497,6 +1505,7 @@ def _add_training_args(parser):
             "sophiag",
             "adopt",
             "muon",
+            "muonclip",
         ],
         help="Optimizer function",
     )

@@ -1100,6 +1100,10 @@ def train(
             f"Running learning rate finder for {finder_iters} iterations (10% of {args.train_iters})"
         )
 
+        # convenience handles for DP sync
+        dp_group = mpu.get_data_parallel_group()
+        dev = torch.device(DEVICE_TYPE)  
+
         # Main LR finder loop
         for i in range(finder_iters):
             # Execute training step
@@ -1112,18 +1116,41 @@ def train(
                 config,
             )
 
-            # Skip iterations that didn't update weights
+            # --- MAKE skipped_iter GLOBAL (any rank skip => all skip) ---
+            if tdist.is_available() and tdist.is_initialized():
+                _skip = torch.tensor([1 if skipped_iter else 0], device=dev)
+                tdist.all_reduce(_skip, op=tdist.ReduceOp.MAX, group=dp_group)
+                skipped_iter = bool(_skip.item())
+
+            # ---- PRESERVE ORIGINAL SEMANTICS: do NOT advance LR when skipped ----
             if skipped_iter:
+                # Keep control flow identical across ranks
                 continue
 
-            # Get loss value (use first available loss if multiple present)
+            # Get loss value (use first available loss if multiple present).
+            # Non-pipeline-last stages return {}, so contribute 0.
             if "lm loss" in loss_dict:
-                loss_val = loss_dict["lm loss"]
+                local_loss = loss_dict["lm loss"]
+            elif loss_dict:
+                local_loss = next(iter(loss_dict.values()))
             else:
-                loss_val = next(iter(loss_dict.values()))
+                local_loss = 0.0
 
-            if isinstance(loss_val, torch.Tensor):
-                loss_val = loss_val.item()
+            if isinstance(local_loss, torch.Tensor):
+                local_loss = local_loss.item()
+
+            # --- REDUCE loss across DP (average of contributing ranks) ---
+            loss_t = torch.tensor([float(local_loss)], device=dev)
+            # Only pipeline-last ranks contribute 1.0 to the denominator
+            contrib = 1.0 if mpu.is_pipeline_last_stage(ignore_virtual=True) else 0.0
+            denom_t = torch.tensor([contrib], device=dev)
+
+            if tdist.is_available() and tdist.is_initialized():
+                tdist.all_reduce(loss_t, op=tdist.ReduceOp.SUM, group=dp_group)
+                tdist.all_reduce(denom_t, op=tdist.ReduceOp.SUM, group=dp_group)
+
+            dp_count = max(1.0, float(denom_t.item()))
+            loss_val = float(loss_t.item()) / dp_count
 
             # Update batch counter
             batch_num += 1
@@ -1132,31 +1159,51 @@ def train(
             avg_loss = beta * avg_loss + (1 - beta) * loss_val
             smoothed_loss = avg_loss / (1 - beta**batch_num)
 
-            # Stop if the loss is exploding
-            if batch_num > 1 and smoothed_loss > 4 * best_loss:
-                log.info(f"Loss exploding at lr={curr_lr:.8f}, stopping LR finder")
-                break
-
-            # Record the best loss
+            # Update best_loss with the SAME smoothed_loss across all ranks
             if smoothed_loss < best_loss or batch_num == 1:
                 best_loss = smoothed_loss
+
+          #  explode = (batch_num > 1 and smoothed_loss > 4 * best_loss)
+    
+
+           # if explode:
+           #     if mpu.get_data_parallel_rank() == 0:
+           #         log.info(f"Loss exploding at lr={curr_lr:.8f}, stopping LR finder")
+           #     break
+
+            ## Record the best loss (use the same global smoothed_loss)
+            #if smoothed_loss < best_loss or batch_num == 1:
+            #    best_loss = smoothed_loss
+
+            # --- GLOBALIZE the "loss exploding" decision (any rank => all ranks) ---
+            #explode_local = (batch_num > 1 and smoothed_loss > 4 * best_loss)
+            #print(f"Rank {mpu.get_data_parallel_rank()}: explode_local={explode_local}")
+            #if mpu.get_data_parallel_rank() == 0:
+                
+            #    print(f"Iter {i}: batch_num={batch_num}, smoothed_loss={smoothed_loss:.8f}, best_loss={best_loss:.8f}, ratio={smoothed_loss/best_loss:.2f}")
+            #if tdist.is_available() and tdist.is_initialized():
+            #    _exp = torch.tensor([1 if explode_local else 0], device=dev)
+            #    tdist.all_reduce(_exp, op=tdist.ReduceOp.MAX, group=dp_group)
+            #    explode = bool(_exp.item())
+            #else:
+            #    explode = explode_local
+
+            
+
+            #if explode:
+            #    if mpu.get_data_parallel_rank() == 0:
+            #        log.info(f"Loss exploding at lr={curr_lr:.8f}, stopping LR finder")
+                # Keep everyone in lockstep before breaking
+            #    if tdist.is_available() and tdist.is_initialized():
+            #        tdist.barrier(group=dp_group)
+            #    break
 
             # Record values for plotting
             lr_finder_losses.append(smoothed_loss)
             lr_finder_lrs.append(curr_lr)
 
-            # Log to wandb
-            #            if wandb is not None and wandb.run is not None:
-            #              wandb.log({
-            #               "lr_finder/learning_rate": curr_lr,
-            #               "lr_finder/raw_loss": loss_val,
-            #               "lr_finder/smoothed_loss": smoothed_loss,
-            #               "lr_finder/iteration": i,
-            #               "lr_finder/log_lr": math.log10(curr_lr)
-            #               })
-
             # Print progress
-            if (i + 1) % args.log_interval == 0:
+            if (i + 1) % args.log_interval == 0 and mpu.get_data_parallel_rank() == 0:
                 log.info(
                     f"LR Finder: iteration {i+1}/{finder_iters}, "
                     f"lr: {curr_lr:.8f}, loss: {smoothed_loss:.4f}"
@@ -1196,6 +1243,10 @@ def train(
                 pass
 
             log.info(f"LR finder completed. Results saved to {args.save}/lr_finder/")
+
+        # Ensure all ranks exit LR-finder together (prevents stragglers)
+        if tdist.is_available() and tdist.is_initialized():
+            tdist.barrier(group=dp_group)
 
         # Return after LR finder is done
         return args.iteration

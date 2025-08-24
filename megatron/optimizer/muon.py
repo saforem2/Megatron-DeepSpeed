@@ -3,7 +3,7 @@ import torch
 import math
 import torch.distributed as dist
 from torch import Tensor
-
+from typing import Iterable, Optional, Callable, List, Dict, Any
 
 # This code snippet is a modified version adapted from the following GitHub repository:
 # https://github.com/KellerJordan/Muon/blob/master/muon.py
@@ -241,4 +241,215 @@ class Muon(torch.optim.Optimizer):
                     p.data.mul_(1 - lr * weight_decay)
                     p.data.add_(g, alpha=-lr / scale)
 
+        return loss
+
+
+# ==========================================================
+#            MuonClip: Muon + post-step QK-clip
+# ==========================================================
+
+class QKInputRecorder:
+    """
+    Minimal helper to capture the input 'x' that feeds an attention block's
+    q/k projections on each forward pass.
+
+    Usage:
+      rec = QKInputRecorder()
+      optimizer.attach_to_attention(attn, recorder=rec, q_attr='q_proj', k_attr='k_proj',
+                                    d_head=head_dim, t=100.0, alpha=0.5)
+    """
+    def __init__(self):
+        self._buffers: Dict[int, Tensor] = {}
+        self._handles: List[Any] = []
+
+    def _make_hook(self, key: int):
+        def _capture(module, inputs):
+            # forward_pre_hook → inputs[0] is the module input (x)
+            x: Tensor = inputs[0]
+            self._buffers[key] = x.detach()
+        return _capture
+
+    def attach(self, module) -> Callable[[], Optional[Tensor]]:
+        key = id(module)
+        handle = module.register_forward_pre_hook(self._make_hook(key))
+        self._handles.append(handle)
+        def getter() -> Optional[Tensor]:
+            return self._buffers.get(key, None)
+        return getter
+
+    def remove(self):
+        for h in self._handles:
+            h.remove()
+        self._handles.clear()
+        self._buffers.clear()
+
+
+class MuonClip(Muon):
+    """
+    Muon optimizer with qk-clip:
+      After the normal Muon/AdamW updates, for each registered (W_q, W_k) pair:
+        η = min(t / max_ij(q_i^T k_j), 1),  q = x W_q^T,  k = x W_k^T
+        W_q ← η^α W_q,  W_k ← η^(1-α) W_k
+      (optionally divide logits by sqrt(d_head) to match attention)
+
+    Register pairs via:
+      - attach_to_attention(attn_module, recorder, q_attr='q_proj', k_attr='k_proj', d_head=..., t=..., alpha=...)
+      - register_qk_pair(W_q, W_k, x_getter, d_head=None, t=None, alpha=None)
+
+    Notes:
+      * Clipping runs under no_grad and does not backprop.
+      * If x_getter() returns None (no forward this step), clipping is skipped.
+      * In DDP, we take the MAX of max-logit across ranks before computing η.
+    """
+
+    def __init__(
+        self,
+        params: Iterable[Tensor],
+        *,
+        lr: float = 1e-3,
+        wd: float = 0.1,
+        momentum: float = 0.95,
+        nesterov: bool = True,
+        ns_steps: int = 5,
+        adamw_betas=(0.95, 0.95),
+        adamw_eps: float = 1e-8,
+        # MuonClip extras:
+        qk_clip: bool = True,
+        clip_t: float = 100.0,
+        alpha: float = 0.5,
+        use_sqrt_d: bool = True,
+    ):
+        super().__init__(
+            params,
+            lr=lr,
+            wd=wd,
+            momentum=momentum,
+            nesterov=nesterov,
+            ns_steps=ns_steps,
+            adamw_betas=adamw_betas,
+            adamw_eps=adamw_eps,
+        )
+        self._clip_enabled = bool(qk_clip)
+        self._clip_t_default = float(clip_t)
+        self._alpha_default = float(alpha)
+        self._use_sqrt_d = bool(use_sqrt_d)
+        self._pairs: List[Dict[str, Any]] = []  # W_q, W_k, x_getter, d_head, t, alpha
+
+    # --------- Registration APIs ---------
+
+    def register_qk_pair(
+        self,
+        W_q: Tensor,
+        W_k: Tensor,
+        x_getter: Callable[[], Optional[Tensor]],
+        *,
+        d_head: Optional[int] = None,
+        t: Optional[float] = None,
+        alpha: Optional[float] = None,
+    ):
+        self._pairs.append(
+            dict(
+                W_q=W_q,
+                W_k=W_k,
+                x_getter=x_getter,
+                d_head=d_head,
+                t=float(t) if t is not None else None,
+                alpha=float(alpha) if alpha is not None else None,
+            )
+        )
+
+    def attach_to_attention(
+        self,
+        attn_module: torch.nn.Module,
+        *,
+        recorder: Optional[QKInputRecorder] = None,
+        q_attr: str = "q_proj",
+        k_attr: str = "k_proj",
+        d_head: Optional[int] = None,
+        t: Optional[float] = None,
+        alpha: Optional[float] = None,
+    ):
+        """
+        Convenience hook for the common case with separate q/k Linear modules.
+        """
+        assert hasattr(attn_module, q_attr) and hasattr(attn_module, k_attr), \
+            f"Module must have {q_attr} and {k_attr}"
+        q_lin = getattr(attn_module, q_attr)
+        k_lin = getattr(attn_module, k_attr)
+        assert hasattr(q_lin, "weight") and hasattr(k_lin, "weight")
+
+        if recorder is None:
+            recorder = QKInputRecorder()
+        x_getter = recorder.attach(attn_module)
+        self.register_qk_pair(q_lin.weight, k_lin.weight, x_getter,
+                              d_head=d_head, t=t, alpha=alpha)
+        return recorder  # keep this object alive somewhere!
+
+    # ------------- Core step --------------
+
+    @torch.no_grad()
+    def _apply_qk_clip_once(
+        self,
+        W_q: Tensor,
+        W_k: Tensor,
+        x: Tensor,
+        *,
+        d_head: Optional[int],
+        t: float,
+        alpha: float,
+        eps: float = 1e-12,
+    ):
+        """
+        Compute η from current batch x and rescale W_q/W_k in-place.
+        """
+        # x: (B, T, d_model); W_q/W_k: (out_features, d_model)
+        device = W_q.device
+        x = x.to(device, non_blocking=True)
+
+        q = x @ W_q.T
+        k = x @ W_k.T
+
+        scores = torch.einsum("bid,bjd->bij", q, k)
+        if self._use_sqrt_d:
+            denom = float(d_head if d_head is not None else W_q.size(0))
+            scores = scores / (denom ** 0.5)
+
+        max_logit = scores.max()
+
+        # Global max across DDP ranks, if any
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(max_logit, op=dist.ReduceOp.MAX)
+
+        # η = min(t / max_logit, 1)
+        if max_logit <= 0:
+            eta = torch.tensor(1.0, device=device)
+        else:
+            eta = torch.clamp(t / (max_logit + eps), max=1.0)
+
+        # Always apply (η==1 → no change)
+        W_q.mul_(eta ** alpha)
+        W_k.mul_(eta ** (1.0 - alpha))
+
+        return float(max_logit.item()), float(eta.item())
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        # 1) normal Muon/AdamW step
+        loss = super().step(closure=closure)
+
+        # 2) qk-clip (post-step)
+        if self._clip_enabled and len(self._pairs) > 0:
+            for pair in self._pairs:
+                x = pair["x_getter"]()
+                if x is None:
+                    continue  # no forward for this module this step
+                self._apply_qk_clip_once(
+                    pair["W_q"],
+                    pair["W_k"],
+                    x,
+                    d_head=pair.get("d_head", None),
+                    t=pair.get("t", self._clip_t_default) or self._clip_t_default,
+                    alpha=pair.get("alpha", self._alpha_default)
+                          if pair.get("alpha", None) is not None else self._alpha_default,
+                )
         return loss

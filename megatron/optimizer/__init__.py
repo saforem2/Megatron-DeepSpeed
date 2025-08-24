@@ -445,6 +445,23 @@ def get_megatron_optimizer(
             adamw_betas=(args.muonadamw_beta1, args.muonadamw_beta2),
             adamw_eps=args.muonadamw_eps,
         )
+    # --- muonclip  -----------------------------------------------
+    elif str(args.optimizer).lower() == "muonclip":
+        from .muon import MuonClip
+
+        optimizer = MuonClip(
+            param_groups,
+            lr=args.lr,
+            wd=args.weight_decay,
+            momentum=args.muon_momentum,
+            nesterov=args.muon_nesterov,
+            ns_steps=args.muon_ns_steps,
+            adamw_betas=(args.muonadamw_beta1, args.muonadamw_beta2),
+            adamw_eps=args.muonadamw_eps,
+            qk_clip=True,                 # turn on MuonClip
+            clip_t=args.muonclip_t,       
+            alpha=args.muonclip_alpha,    
+        )
     else:
         raise TypeError(f"{args.optimizer} optimizer is not supported.")
     assert optimizer is not None
