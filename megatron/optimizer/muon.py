@@ -46,6 +46,7 @@ class Muon(torch.optim.Optimizer):
         ns_steps=5,
         adamw_betas=(0.95, 0.95),
         adamw_eps=1e-8,
+        adjuster_lr_ref=True #original moonlight lr adjustment
     ):
         defaults = dict(
             lr=lr,
@@ -73,7 +74,7 @@ class Muon(torch.optim.Optimizer):
                 if p.grad is None:
                     continue
 
-                use_muon = p.ndim == 2
+                use_muon = (p.ndim == 2)
 
                 # If parameter is 2D but has a large dimension, it's likely an embedding or LM head, need to change this!!!
                 if use_muon and max(p.shape) > 10000:
@@ -124,7 +125,19 @@ class Muon(torch.optim.Optimizer):
         """
         A, B = param_shape[:2]
         # We adjust the learning rate based on the size of the parameter matrix
+        #adjusted_ratio = max(1.0, float(A) / float(B)) ** 0.5
         adjusted_ratio = 0.2 * math.sqrt(max(A, B))
+        adjusted_lr = lr * adjusted_ratio
+        return adjusted_lr
+
+    def adjust_lr_for_muonclip(self, lr, param_shape):
+        """
+        Adjust learning rate based on parameter shape for Muon.
+        """
+        A, B = param_shape[:2]
+        # We adjust the learning rate based on the size of the parameter matrix
+        adjusted_ratio = max(1.0, float(A) / float(B)) ** 0.5
+        #adjusted_ratio = 0.2 * math.sqrt(max(A, B))
         adjusted_lr = lr * adjusted_ratio
         return adjusted_lr
 
@@ -205,7 +218,10 @@ class Muon(torch.optim.Optimizer):
                     u = zeropower_via_newtonschulz5(g, steps=ns_steps)
 
                     # Scale update
-                    adjusted_lr = self.adjust_lr_for_muon(lr, p.shape)
+                    if adjuster_lr_ref==True:
+                        adjusted_lr = self.adjust_lr_for_muon(lr, p.shape)
+                    else:
+                        adjusted_lr = self.adjust_lr_for_muonclip(lr, p.shape)
 
                     # Apply weight decay
                     p.data.mul_(1 - lr * wd)
@@ -258,31 +274,49 @@ class QKInputRecorder:
       optimizer.attach_to_attention(attn, recorder=rec, q_attr='q_proj', k_attr='k_proj',
                                     d_head=head_dim, t=100.0, alpha=0.5)
     """
-    def __init__(self):
+    def __init__(self, auto_clear: bool = True):
         self._buffers: Dict[int, Tensor] = {}
         self._handles: List[Any] = []
+        self._auto_clear = auto_clear
+        self._retrieved: set = set()  # Track which buffers were retrieved
 
     def _make_hook(self, key: int):
         def _capture(module, inputs):
             # forward_pre_hook → inputs[0] is the module input (x)
             x: Tensor = inputs[0]
             self._buffers[key] = x.detach()
+            # Mark as not yet retrieved
+            if key in self._retrieved:
+                self._retrieved.remove(key)
         return _capture
 
     def attach(self, module) -> Callable[[], Optional[Tensor]]:
         key = id(module)
         handle = module.register_forward_pre_hook(self._make_hook(key))
         self._handles.append(handle)
+        
         def getter() -> Optional[Tensor]:
-            return self._buffers.get(key, None)
+            tensor = self._buffers.get(key, None)
+            if tensor is not None:
+                self._retrieved.add(key)
+            return tensor
         return getter
+    
+    def clear_buffers(self):
+        """Clear only retrieved buffers to free memory."""
+        if self._auto_clear:
+            for key in self._retrieved:
+                if key in self._buffers:
+                    del self._buffers[key]
+            self._retrieved.clear()
 
     def remove(self):
+        """Remove all hooks and clear buffers."""
         for h in self._handles:
             h.remove()
         self._handles.clear()
         self._buffers.clear()
-
+        self._retrieved.clear()
 
 class MuonClip(Muon):
     """
@@ -313,6 +347,7 @@ class MuonClip(Muon):
         ns_steps: int = 5,
         adamw_betas=(0.95, 0.95),
         adamw_eps: float = 1e-8,
+        adjuster_lr_ref=False,
         # MuonClip extras:
         qk_clip: bool = True,
         clip_t: float = 100.0,
@@ -328,6 +363,7 @@ class MuonClip(Muon):
             ns_steps=ns_steps,
             adamw_betas=adamw_betas,
             adamw_eps=adamw_eps,
+            adjuster_lr_ref=adjuster_lr_ref,
         )
         self._clip_enabled = bool(qk_clip)
         self._clip_t_default = float(clip_t)
@@ -347,6 +383,12 @@ class MuonClip(Muon):
         t: Optional[float] = None,
         alpha: Optional[float] = None,
     ):
+
+        """Register a Q/K weight pair for clipping."""
+        # Validate tensor shapes
+        assert W_q.ndim == 2 and W_k.ndim == 2, "W_q and W_k must be 2D tensors"
+        assert W_q.size(1) == W_k.size(1), "W_q and W_k must have same input dimension"
+
         self._pairs.append(
             dict(
                 W_q=W_q,
@@ -402,6 +444,14 @@ class MuonClip(Muon):
         """
         Compute η from current batch x and rescale W_q/W_k in-place.
         """
+        # Validate and prepare input
+        if x.ndim == 2:
+            x = x.unsqueeze(0)  # Add batch dimension if missing
+
+        assert x.ndim == 3, f"Expected 3D input (batch, seq, dim), got shape {x.shape}"
+        assert x.size(-1) == W_q.size(1), \
+            f"Input dim {x.size(-1)} doesn't match weight dim {W_q.size(1)}"
+
         # x: (B, T, d_model); W_q/W_k: (out_features, d_model)
         device = W_q.device
         x = x.to(device, non_blocking=True)
@@ -411,26 +461,36 @@ class MuonClip(Muon):
 
         scores = torch.einsum("bid,bjd->bij", q, k)
         if self._use_sqrt_d:
-            denom = float(d_head if d_head is not None else W_q.size(0))
-            scores = scores / (denom ** 0.5)
+            scores = scores / (W_q.size(0) ** 0.5)
+            #denom = float(d_head if d_head is not None else W_q.size(0))
+            #scores = scores / (denom ** 0.5)
 
-        max_logit = scores.max()
+        # Find maximum score
+        max_score = scores.max()
+        
+        # Check for numerical issues
+        if not torch.isfinite(max_score):
+            return False, float('nan')
 
-        # Global max across DDP ranks, if any
+        # Global max across DDP ranks if in distributed training
         if dist.is_available() and dist.is_initialized():
-            dist.all_reduce(max_logit, op=dist.ReduceOp.MAX)
+            dist.all_reduce(max_score, op=dist.ReduceOp.MAX)
 
-        # η = min(t / max_logit, 1)
-        if max_logit <= 0:
-            eta = torch.tensor(1.0, device=device)
-        else:
-            eta = torch.clamp(t / (max_logit + eps), max=1.0)
-
-        # Always apply (η==1 → no change)
-        W_q.mul_(eta ** alpha)
-        W_k.mul_(eta ** (1.0 - alpha))
-
-        return float(max_logit.item()), float(eta.item())
+        max_score_val = max_score.item() if torch.is_tensor(max_score) else max_score
+        
+        # Apply clipping if max score exceeds threshold
+        if max_score_val > t:
+            eta = t / (max_score_val + eps)
+            scale_q = eta ** alpha
+            scale_k = eta ** (1 - alpha)
+            
+            # Scale the weights
+            W_q.mul_(scale_q)
+            W_k.mul_(scale_k)
+            
+            return True, max_score_val
+        
+        return False, max_score_val
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -443,13 +503,34 @@ class MuonClip(Muon):
                 x = pair["x_getter"]()
                 if x is None:
                     continue  # no forward for this module this step
-                self._apply_qk_clip_once(
-                    pair["W_q"],
-                    pair["W_k"],
-                    x,
-                    d_head=pair.get("d_head", None),
-                    t=pair.get("t", self._clip_t_default) or self._clip_t_default,
-                    alpha=pair.get("alpha", self._alpha_default)
-                          if pair.get("alpha", None) is not None else self._alpha_default,
-                )
+                try:
+                    clipped, max_score = self._apply_qk_clip_once(
+                        pair["W_q"],
+                        pair["W_k"],
+                        x,
+                        d_head=pair.get("d_head", None),
+                        t=pair.get("t", self._clip_t_default) or self._clip_t_default,
+                        alpha=pair.get("alpha", self._alpha_default)
+                              if pair.get("alpha", None) is not None else self._alpha_default,
+                    )
+                    
+                    # Optional: log clipping events for monitoring
+                    # if clipped:
+                    #     print(f"QK-clip triggered! Max score: {max_score:.2f} > {pair.get('t', self._clip_t_default):.2f}")
+                    
+                except Exception as e:
+                    # Log but don't crash training
+                    print(f"Warning: QK-clip failed with error: {e}")
+                    continue
+            
+            # Clear recorder buffers after each step to prevent memory accumulation
+            for recorder in self._recorders:
+                recorder.clear_buffers()
         return loss
+    def __del__(self):
+        """Cleanup hooks when optimizer is destroyed."""
+        for recorder in self._recorders:
+            try:
+                recorder.remove()
+            except:
+                pass  # Ignore errors during cleanup
