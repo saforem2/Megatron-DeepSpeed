@@ -592,6 +592,8 @@ def training_log(
         tflops_lm = num_flop_per_sec_lm / (10**12)
         tflops_lm_per_gpu = tflops_lm / args.world_size
         wandb_metrics |= {
+            "iteration": iteration,
+            "train_iters": args.train_iters,
             "throughput/iteration-time": elapsed_time_per_iteration,  # 1000 ms / s
             "throughput/samples_per_sec": samples_per_sec,
             "throughput/samples_per_sec_per_replica": samples_per_sec_per_replica,
@@ -612,6 +614,12 @@ def training_log(
                 **{f"loss/{k}": v for k, v in loss_dict.items()},
             }
         if writer and args.log_timers_to_tensorboard:
+            wandb_metrics |= {
+                'iteration-time/iteration': iteration,
+                'iteration-time/iteration-time': elapsed_time_per_iteration,
+                'iteration-time/consumed_train_samples': args.consumed_train_samples,
+                'iteration-time/consumed_train_tokens': args.consumed_train_tokens,
+            }
             writer.add_scalar(
                 "iteration-time/iteration-time", elapsed_time_per_iteration, iteration
             )
@@ -666,6 +674,7 @@ def training_log(
                 )
                 if avg > 0.0:
                     log_string += " {}={:.6f} |".format(key, avg)
+                wandb_metrics[f"loss/{key}"] = avg
                 total_loss_dict[key] = torch.tensor([0.0]).to(DEVICE)
         if loss_scale is not None:
             log_string += " loss_scale={:.1f} |".format(loss_scale)

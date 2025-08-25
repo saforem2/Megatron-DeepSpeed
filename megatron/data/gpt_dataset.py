@@ -132,6 +132,7 @@ def build_train_valid_test_datasets(
                 return self.dataset
 
         class BuildCorpusDataset(torch.utils.data.Dataset):
+
             @dlp.log
             def __init__(self, dataset_builders):
                 self.dataset_builders = dataset_builders
@@ -151,11 +152,17 @@ def build_train_valid_test_datasets(
                     dataset_sample_index = np.zeros(self.num_samples, dtype=np.int64)
                     weights = num_samples_list / self.num_samples
                     helpers.build_blending_indices(
-                        dataset_index, dataset_sample_index,
-                        weights, self.num_datasets, self.num_samples,
-                        torch.distributed.get_rank() == 0)
-                    log.debug(f"> elapsed time for building blendable dataset indices for corpus {self.dataset_builders[0].corpus}: "
-                             "{:.2f} (sec)".format(time.time() - start_time))
+                        dataset_index,
+                        dataset_sample_index,
+                        weights,
+                        self.num_datasets,
+                        self.num_samples,
+                        torch.distributed.get_rank() == 0,
+                    )
+                    log.debug(
+                        f"> elapsed time for building blendable dataset indices for corpus {self.dataset_builders[0].corpus}: "
+                        "{:.2f} (sec)".format(time.time() - start_time)
+                    )
                     return dataset_index, dataset_sample_index
 
                 @dlp.log
@@ -274,6 +281,7 @@ def build_train_valid_test_datasets(
         test_datasets = []
         # Build individual datasets.
         args = get_args()
+
         @dlp.log
         def build_corpus_datasets(dataset_type="train"):
             start_time = time.time()
@@ -467,7 +475,8 @@ def _build_train_valid_test_datasets(
     def print_split_stats(name, index):
         log.debug("    {}:".format(name))
         log.debug(
-            "     document indices in [{}, {}) total of {} " "documents".format(
+            "     document indices in [{}, {}) total of {} "
+            "documents".format(
                 splits[index], splits[index + 1], splits[index + 1] - splits[index]
             )
         )
@@ -533,7 +542,8 @@ def _build_train_valid_test_datasets_single(
     def print_split_stats(name, index):
         log.debug("    {}:".format(name))
         log.debug(
-            "     document indices in [{}, {}) total of {} " "documents".format(
+            "     document indices in [{}, {}) total of {} "
+            "documents".format(
                 splits[index], splits[index + 1], splits[index + 1] - splits[index]
             )
         )
@@ -653,9 +663,8 @@ def _build_dataset(
 
     log.debug("    {}:".format(dataset_name))
     log.debug(
-        "     document indices in [0, {}) total of {} " "documents".format(
-            total_num_of_documents, total_num_of_documents
-        )
+        "     document indices in [0, {}) total of {} "
+        "documents".format(total_num_of_documents, total_num_of_documents)
     )
 
     documents = np.arange(start=0, stop=total_num_of_documents, step=1, dtype=np.int32)
@@ -683,9 +692,8 @@ def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
     start_time = time.time()
     indexed_dataset = make_indexed_dataset(data_prefix, data_impl, skip_warmup)
     log.debug(
-        " > finished creating indexed dataset in {:4f} " "seconds".format(
-            time.time() - start_time
-        )
+        " > finished creating indexed dataset in {:4f} "
+        "seconds".format(time.time() - start_time)
     )
     log.debug("    number of documents: {}".format(indexed_dataset.sizes.shape[0]))
 
@@ -693,6 +701,7 @@ def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
 
 
 class GPTDataset(torch.utils.data.Dataset):
+
     @dlp.log
     def __init__(
         self,
@@ -1129,9 +1138,8 @@ def _build_sample_idx(sizes, doc_idx, seq_length, num_epochs, tokens_per_epoch):
 def _build_shuffle_idx(num_samples, total_size, np_rng):
     """Build the range [0, size) and shuffle."""
     log.debug(
-        " > building shuffle index with split [0, {}) and [{}, {}) " "...".format(
-            num_samples, num_samples, total_size
-        )
+        " > building shuffle index with split [0, {}) and [{}, {}) "
+        "...".format(num_samples, num_samples, total_size)
     )
 
     dtype_ = np.uint32

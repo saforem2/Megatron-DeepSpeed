@@ -2,28 +2,13 @@
 ###############################################################################
 # [`ALCF/helpers.sh`](https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/ALCF/helpers.sh)
 #
-# Contains helper functions for launching `../train_llama_alcf.sh`
-#
-# To use, on any of {Polaris, Aurora, Sunspot} @ ALCF:
-#
-#     ```bash
-#     $ git clone https://github.com/argonne-lcf/Megatron-DeepSpeed
-#     $ cd Megatron-DeepSpeed
-#     $ export PBS_O_WORKDIR=$(pwd) && source ALCF/helpers.sh && setup
-#     ```
-#
-# and this will, automatically:
-#
-# 1. Setup python (conda + virtual environment)
-#
-# 2. Parse `$PBS_*` env vars to build appropriate `alias launch='mpiexec ...'`
-#    command for launching across all GPUs in our active PBS job.
+# Contains helper functions for launching `../train_alcf.sh`
 ###############################################################################
 
 ###############################################################################
 # Source:
 # [`ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
-source <(curl -L https://bit.ly/ezpz-utils) > /dev/null || exit
+source <(curl -L https://bit.ly/ezpz-utils) > /dev/null || return 1
 ezpz_setup_job >/dev/null || exit
 ###############################################################################
 
@@ -124,7 +109,7 @@ setup() {
     check_executable "${EXEC:-${WORKING_DIR}/pretrain_gpt_alcf.py}"
     dfl="${DATA_FILE_LIST:-"${PBS_O_WORKDIR:-${HERE}}/ALCF/data-lists/$(ezpz_get_machine_name)/dolma.txt"}"
     # Setup data + tokenizer via `DATA_FILE_LIST` and `TOKENIZER_TYPE`
-    tok="${TOKENIZER_TYPE:-Llama2Tokenizer}"
+    tok="${TOKENIZER_TYPE:-HFTokenizer}"
     setup_tokenizer_and_data "${tok}" "${dfl}" || exit
     make_data || exit
     # Print job info
@@ -187,20 +172,6 @@ setup_run_cmd() {
             "--ffn-hidden-size ${FFN_HIDDEN_SIZE}"
         )
     fi
-    # min_lr=$(python3 -c 'print(f"{2 / (10 ** 5):.8f}")')
-    # "--min-lr ${LR:-${min_lr}}"  # 2e-5
-    # "--min-lr ${MIN_LR:-"2e-6"}"  # 2e-5
-    export LR="${LR:-0.0002}"
-    export LR_DECAY_STYLE="${LR_DECAY_STYLE:-cosine}"
-    export LR_WARMUP_FRAC="${LR_WARMUP_FRAC:-0.05}"
-    lr_flags=(
-        "--lr ${LR}"
-        "--lr-decay-style ${LR_DECAY_STYLE}"
-        "--lr-warmup-fraction ${LR_WARMUP_FRAC}"
-    )
-    if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
-        lr_flags+=("--lr-decay-iters ${LR_DECAY_ITERS:-}")
-    fi
 
     tb_flags=()
     if [[ -z "${NO_TENSORBOARD:-}" ]]; then
@@ -232,49 +203,55 @@ setup_run_cmd() {
         "${ds_args[@]}"
         "${gpt_args[@]}"
         "--${DTYPE}"
-        "--shuffle-sample-in-corpus"
-        "--blend-sample-in-corpus"
         "--accumulate-allreduce-grads-in-fp32"
+        "--adjust-word-embedding-init"
+        "--adam-beta1=${ADAM_BETA1:-0.9}"
+        "--adam-beta2=${ADAM_BETA2:-0.95}"
+        "--adam-eps=${ADAM_EPS:-0.00001}"
+        "--blend-sample-in-corpus"
+        "--clip-grad=${CLIP_GRAD:-1.0}"
+        "--data-cache-path=${data_cache_path}"
+        "--data-file-list=${DATA_FILE_LIST:-${dfl_fallback}}"
+        "--distributed-backend=${BE}"
+        "--ds-sequence-parallel-size=${SP}"
+        "--eval-interval=${EVAL_INTERVAL:-100}"
+        "--eval-iters=${EVAL_ITERS:-20}"
+        "--global-batch-size=${GLOBAL_BATCH}"
+        "--hidden-size=${HIDDEN}"
+        "--init-method-std=$(echo "scale=6; sqrt(2 / (5 * ${HIDDEN}))" | bc -l)"
+        "--log-interval=${LOG_INTERVAL:-1}"
+        "--load=${LOAD:-${CKPT_DIR}}"
+        "--max-position-embeddings=$(( 16 * SEQ ))"
+        "--micro-batch-size=${MICRO_BATCH}"
         "--no-bias-gelu-fusion"
         "--no-bias-dropout-fusion"
         "--no-masked-softmax-fusion"
         "--no-gradient-accumulation-fusion"
-        "--optimizer=${OPT}"
-        "--tensor-model-parallel-size=${TP}"
-        "--pipeline-model-parallel-size=${PP}"
-        "--max-position-embeddings=${SEQ}"
-        "--micro-batch-size=${MICRO_BATCH}"
-        "--ds-sequence-parallel-size=${SP}"
-        "--global-batch-size=${GLOBAL_BATCH}"
-        "--split=${TRAIN_SPLIT:-990},${VAL_SPLIT:-10},${TEST_SPLIT:-0}"
-        "--timing-log-level=${TIMING_LOG_LEVEL:-1}"
-        "--eval-interval=${EVAL_INTERVAL:-100}"
-        "--eval-iters=${EVAL_ITERS:-20}"
-        "--save-interval=${SAVE_INTERVAL:-50}"
-        "--log-interval=${LOG_INTERVAL:-1}"
-        "--save=${SAVE:-${CKPT_DIR}}"
-        "--load=${LOAD:-${CKPT_DIR}}"
-        "--seq-length=${SEQ}"
         "--num-layers=${NLAYERS}"
-        "--hidden-size=${HIDDEN}"
-        "--train-iters=${TRAIN_ITERS}"
-        "--distributed-backend=${BE}"
-        "--weight-decay=${WEIGHT_DECAY:-0.1}"
-        "--adam-beta1=${ADAM_BETA1:-0.9}"
-        "--adam-beta2=${ADAM_BETA2:-0.95}"
-        "--adam-eps=${ADAM_EPS:-0.00001}"
-        "--clip-grad=${CLIP_GRAD:-1.0}"
         "--num-attention-heads=${HEADS}"
-        "--data-cache-path=${data_cache_path}"
-        "--data-file-list=${DATA_FILE_LIST:-${dfl_fallback}}"
+        "--optimizer=${OPT}"
+        "--pipeline-model-parallel-size=${PP}"
+        "--rotary-position-embeddings-theta=${ROPE_THETA:-50000}"
+        "--save=${SAVE:-${CKPT_DIR}}"
+        "--seq-length=${SEQ}"
+        "--split=${TRAIN_SPLIT:-990},${VAL_SPLIT:-10},${TEST_SPLIT:-0}"
+        "--shuffle-sample-in-corpus"
+        "--save-interval=${SAVE_INTERVAL:-50}"
+        "--train-iters=${TRAIN_ITERS}"
+        "--tensor-model-parallel-size=${TP}"
+        "--timing-log-level=${TIMING_LOG_LEVEL:-1}"
+        "--weight-decay=${WEIGHT_DECAY:-0.1}"
+        "--word-embedding-init-std=0.632455532"
     )
     declare -A arch_map
     printf "==== ARCHITECTURE ====\n"
     arch_map=(
+        ["MODEL_ARCH"]="${MODEL_ARCH}"
         ["TP"]="${TP}"
         ["PP"]="${PP}"
         ["SP"]="${SP}"
         ["DP"]="${DP}"
+        ["ZERO"]="${ZERO_STAGE}"
         ["MBS"]="${MICRO_BATCH}"
         ["GAS"]="${GRAD_ACC_STEPS}"
         ["GBS"]="${GLOBAL_BATCH}"
@@ -321,61 +298,6 @@ save_dotenv() {
         export DOTENV_FILE="${dotenv_file}"
     fi
 }
-
-#######################################################################
-## get_machine_name:
-##
-## Return current machine name, as lowercase string
-##
-## Example:
-##   ```bash
-##   $ machine_name=$(get_machine_name)
-##   $ echo "machine_name: ${machine_name}"
-##   ```
-#######################################################################
-#get_machine_name() {
-#    if [[ $(hostname) == x4* || $(hostname) == aurora* ]]; then
-#        machine="aurora"
-#    elif [[ $(hostname) == x1* || $(hostname) == uan* ]]; then
-#        machine="sunspot"
-#    elif [[ $(hostname) == x3* || $(hostname) == polaris* ]]; then
-#        if [[ "${PBS_O_HOST}" == sirius* ]]; then
-#            machine="sirius"
-#        else
-#            machine="polaris"
-#        fi
-#    elif [[ $(hostname) == sophia* ]]; then
-#        machine="sophia"
-#    elif [[ $(hostname) == nid* ]]; then
-#        machine="perlmutter"
-#    else
-#        machine=$(hostname)
-#    fi
-#    echo "${machine}"
-#}
-#
-#get_machine() {
-#    machine=$(hostname)
-#    if [[ $(hostname) == x4* ]]; then
-#        machine="aurora"
-#    elif [[ $(hostname) == x1* ]]; then
-#        machine="sunspot"
-#    elif [[ $(hostname) == x3* ]]; then
-#        if [[ "${PBS_O_HOST}" == sirius* ]]; then
-#            machine="sirius"
-#        else
-#            machine="polaris"
-#        fi
-#    elif [[ $(hostname) == sophia* ]]; then
-#        machine="sophia"
-#    elif [[ $(hostname) == nid* ]]; then
-#        machine="perlmutter"
-#    else
-#        echo "Unknown MACHINE. Setting MACHINE to $(hostname) and continuing..."
-#    fi
-#    export MACHINE="${machine}"
-#    printf "Running on: %s\n" "$(printBlue "${MACHINE}")"
-#}
 
 check_and_kill_if_running() {
     RUNNING_PIDS=$(lsof -i:29500 -Fp | head -n 1 | sed 's/^p//')
@@ -464,21 +386,6 @@ setupLauncher() {
     printf " %s" "$(printMagenta "${LAUNCHER}")"
 }
 
-# set_lr_args() {
-#     export LR=${LR:-0.0002}                       # LEARNING_RATE
-#     export LR_WARMUP_FRAC=${LR_WARMUP_FRAC:-0.05} # LEARNING RATE WARMUP
-#     export LR_DECAY_ITERS=${LR_DECAY_ITERS:-}     # LR DECAY ITERS
-#     LR_ARGS="--lr ${LR} --lr-decay-style cosine"
-#     if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
-#         LR_ARGS="${LR_ARGS} --lr-decay-iters ${LR_DECAY_ITERS}"
-#     fi
-#     if [[ -n "${LR_WARMUP_FRAC}" ]]; then
-#         LR_ARGS="${LR_ARGS} --lr-warmup-fraction ${LR_WARMUP_FRAC}"
-#     fi
-#     echo "LR_ARGS: ${LR_ARGS}"
-#     export LR_ARGS="${LR_ARGS}"
-# }
-
 #########################################################################
 # `get_batch_size_on_polaris`: Identify MICRO_BATCH to use on Polaris.
 #
@@ -552,13 +459,13 @@ get_grad_acc_steps_on_aurora() {
         exit 1
     fi
     nhosts=$(wc -l <"${hf}")
-    if [[ "${nhosts}" -ge 256 ]]; then
+    if [[ "${nhosts}" -ge 256 ]]; then                           #   n >= 256
         gas=1
-    elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then
+    elif [[ 128 -le "${nhosts}" && "${nhosts}" -lt 256 ]]; then  # 128 <= n < 256
         gas=2
-    elif [[ 32 -lt "${nhosts}" && "${nhosts}" -lt 129 ]]; then
+    elif [[ 32 -lt "${nhosts}" && "${nhosts}" -lt 129 ]]; then   #  32 < n  < 128
         gas=4
-    elif [[ 16 -le "${nhosts}" && "${nhosts}" -le 32 ]]; then
+    elif [[ 16 -le "${nhosts}" && "${nhosts}" -le 32 ]]; then    #  16 <= n < 32
         gas=8
     else
         gas=16
@@ -605,6 +512,68 @@ get_model_arch_7B() {
     export NUM_KV_HEAD=${NUM_KV_HEAD:-8}             # GROUP ATTENTION
     export FFN_HIDDEN_SIZE=${FFN_HIDDEN_SIZE:-11008} # FFN HIDDEN SIZE
     export SEQ=${SEQ:-4096}                          # SEQ_LEN: 4096
+    export MODEL_ARCH="AuroraGPT-7B"
+}
+
+get_model_arch_llama3_3B() {
+    export HEADS=24
+    export NLAYERS=28
+    export HIDDEN=3072
+    export NUM_KV_HEAD=8
+    export FFN_HIDDEN_SIZE=8192
+    export SEQ=8192
+    export MODEL_ARCH="llama3-3B"
+}
+
+get_model_arch_smollm3_3B() {
+    export HEADS=16
+    export NLAYERS=36
+    export HIDDEN=2048
+    export NUM_KV_HEAD=4
+    export FFN_HIDDEN_SIZE=11008
+    export SEQ=8192
+    export MODEL_ARCH="smollm3-3B"
+}
+
+get_model_arch_phi4_mini() {
+    export HEADS=32
+    export NLAYERS=24
+    export HIDDEN=3072
+    export NUM_KV_HEAD=8
+    export FFN_HIDDEN_SIZE=8192
+    export SEQ=8192
+    export MODEL_ARCH="phi4-mini"
+}
+
+get_model_arch_llama3_3B_customNlayers() {
+    export HEADS=24
+    export NLAYERS="${NLAYERS:-28}" # default to 28 layers
+    export HIDDEN=3072
+    export NUM_KV_HEAD=8
+    export FFN_HIDDEN_SIZE=8192
+    export SEQ=8192
+    export MODEL_ARCH="llama3-3B-nLayers${NLAYERS}"
+}
+
+
+get_model_arch_smollm3_3B_custom_nLayers() {
+  export HEADS=16
+  export NLAYERS="${NLAYERS:-24}" # default to 24 layers
+  export HIDDEN=2048
+  export NUM_KV_HEAD=4
+  export FFN_HIDDEN_SIZE=11008
+  export SEQ=8192
+  export MODEL_ARCH="smollm3-nLayers${NLAYERS}"
+}
+
+get_model_arch_phi4_mini_custom_nLayers() {
+  export HEADS=32
+  export NLAYERS="${NLAYERS:-24}" # default to 24 layers
+  export HIDDEN=3072
+  export NUM_KV_HEAD=8
+  export FFN_HIDDEN_SIZE=8192
+  export SEQ=8192
+  export MODEL_ARCH="phi4-mini-nLayers${NLAYERS}"
 }
 
 # get_model_arch_70B() {
@@ -630,6 +599,7 @@ get_model_arch_70B() {
     FFN_HIDDEN_SIZE=28672
     HIDDEN=8192
     SEQ_LEN=8192
+    export MODEL_ARCH="AuroraGPT-70B"
 }
 
 get_model_arch_33B() {
@@ -646,6 +616,7 @@ get_model_arch_33B() {
     export FFN_HIDDEN_SIZE=11076
     export SEQ=4096
     export NUM_KV_HEAD=6
+    export MODEL_ARCH="AuroraGPT-33B"
 }
 
 ##############################################################################
@@ -731,13 +702,31 @@ setParams() {
             FLASH_ARG="--use-flash-attn-v2"
         fi
     fi
-    # model_arch="${MODEL_ARCH:-7B}"
-    # printf "Using model architecture: %s\n" "$(printGreen "${model_arch}")"
-    if [[ "${MODEL_ARCH:-}" == "70B" ]]; then
-        get_model_arch_70B
-    else
-        get_model_arch_7B
-    fi
+    ma="${MODEL_ARCH:-7B}"
+    case "${ma}" in
+        # "70B" | "llama-3.1-70B" | "llama-3.1-70b" | "llama-3.2-70B" | "llama-3.2-70b")
+        "70B")
+            get_model_arch_70B
+            ;;
+        "33B" | "llama-3.2-33B" | "llama-3.2-33b")
+            get_model_arch_33B
+            ;;
+        "smollm3-3B" | "smollm3_3B")
+            get_model_arch_smollm3_3B_custom_nLayers
+            ;;
+        "phi4-mini" | "phi4_mini")
+            get_model_arch_phi4_mini_custom_nLayers
+            ;;
+        "llama3-3B" | "llama-3B")
+            get_model_arch_llama3_3B_customNlayers
+            ;;
+        "7B" | "AuroraGPT-7B" | "aurora-gpt-7b" | "llama-3.1-7B" | "llama-3.1-7b" | "llama-3.2-7B" | "llama-3.2-7b")
+            get_model_arch_7B
+            ;;
+        *)
+            get_model_arch_7B
+            ;;
+    esac
     export TP="${TP}"
     export PP="${PP:-1}"
     export SP="${SP:-1}"
@@ -757,6 +746,18 @@ setParams() {
     #     # Use best set of CCL env vars from Gordon Bell runs on Aurora
     #     set_ccl_vars_on_aurora
     # fi
+    # + --[LR Settings]------------------------------------------------------+
+    export LR="${LR:-0.0002}"
+    export LR_DECAY_STYLE="${LR_DECAY_STYLE:-cosine}"
+    export LR_WARMUP_FRAC="${LR_WARMUP_FRAC:-0.05}"
+    lr_flags=(
+        "--lr ${LR}"
+        "--lr-decay-style ${LR_DECAY_STYLE}"
+        "--lr-warmup-fraction ${LR_WARMUP_FRAC}"
+    )
+    if [[ -n "${LR_DECAY_ITERS:-}" ]]; then
+        lr_flags+=("--lr-decay-iters ${LR_DECAY_ITERS:-}")
+    fi
     # +---[Run Settings]------------------------------------------------------+
     export ZERO_STAGE=${ZERO_STAGE:-1}                                                    # ZERO OFFLOADING STAGE
     export MICRO_BATCH=${MICRO_BATCH:-1}                                                  # MICRO BATCH SIZE
@@ -774,14 +775,14 @@ setParams() {
         printf "TRAIN_TOKENS=%s (=%sB tokens)\n" "${TRAIN_TOKENS}" "$((TRAIN_TOKENS / 10 ** 9))"
         printf "TRAIN_ITERS=%s\n" "${TRAIN_ITERS}"
     elif [[ -z "${TRAIN_ITERS:-${TRAIN_ITER:-}}" ]]; then
-        export TRAIN_TOKENS=${TRAIN_TOKENS:-2000000000000}
+        export TRAIN_TOKENS=${TRAIN_TOKENS:-4673780159710}
         export TRAIN_ITERS=$((TRAIN_TOKENS / SEQ / GLOBAL_BATCH))
         printf "TRAIN_TOKENS=%s (=%sB tokens)\n" "${TRAIN_TOKENS}" "$((TRAIN_TOKENS / 10 ** 9))"
         printf "TRAIN_ITERS=%s\n" "${TRAIN_ITERS}"
     else
         export TRAIN_ITERS="${TRAIN_ITERS:-${TRAIN_ITER:-}}"
     fi
-    export MODEL_TYPE="llama-gb${GLOBAL_BATCH}-seq${SEQ}-pp${PP}-tp${TP}-${NLAYERS}layers-${HEADS}heads-${HIDDEN}hidden" # STRING FOR IDENTIFYING MODEL
+    export MODEL_TYPE="${MODEL_ARCH:-AuroraGPT}-gb${GLOBAL_BATCH}-seq${SEQ}-pp${PP}-tp${TP}-${NLAYERS}layers-${HEADS}heads-${HIDDEN}hidden" # STRING FOR IDENTIFYING MODEL
     # NOTE: [2024-07-10] #####################################################
     # - [sam]: For whatever reason, it seems that using
     #   sequence-parallelism (SP) > 1 is INCOMPATIBLE with
@@ -821,41 +822,31 @@ set_args() {
     fi
     ds_args+=("--deepspeed_config=${DS_CONFIG}")
     ds_args+=("--zero-stage=$ZERO_STAGE")
-
-    # if [[ "${ZERO_STAGE}" == 3 ]]; then
-    #     ds_args+=("--use-mics")
-    # fi
-
-    # ds_args=" "
-    # ds_args=" --deepspeed ${ds_args}"
-    # if [[ $PP == 1 ]]; then
-    #     ds_args=" --no-pipeline-parallel ${ds_args}"
-    # fi
-    # ds_args=" --deepspeed_config=$DS_CONFIG ${ds_args}"
-    # ds_args="--zero-stage=$ZERO_STAGE ${ds_args}"
-    # if [[ "${ZERO_STAGE}" == 3 ]]; then
-    #     ds_args="--use-mics ${ds_args}"
-    # fi
-    if [[ -n "${USE_ACTIVATION_CHECKPOINTING:-}" ]]; then
+    # if [[ -n "${USE_ACTIVATION_CHECKPOINTING:-}" ]]; then
+    if [[ "${USE_ACTIVATION_CHECKPOINTING:-}" == 1 || "${USE_ACTIVATION_CHECKPOINTING:-}" == "true" ]]; then
         echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
         ds_args+=("--deepspeed-activation-checkpointing")
+        ds_args+=(
+          "--checkpoint-activations"
+          "--checkpoint-num-layers=${ACT_CKPT_NUM_LAYERS:-1}"
+        )
         # ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
         # --checkpoint-activations \
         # --deepspeed-activation-checkpointing
     fi
     export ds_args
     # ---------------------------------------------------------------
-    gpt_args=()
-    # we are now using activation checkpoint provided by megatron, see below.
-    # ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
-    if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
-        echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
-        gpt_args+=(
-            "--checkpoint-activations"
-            "--checkpoint-num-layers ${ACT_CKPT_NUM_LAYERS}"
-        )
-    fi
-    export gpt_args
+    # gpt_args=()
+    # # we are now using activation checkpoint provided by megatron, see below.
+    # # ds_args=" --deepspeed-activation-checkpointing ${ds_args}"
+    # if [[ "$USE_ACTIVATION_CHECKPOINTING" == 1 ]]; then
+    #     echo "!! Caught USE_ACTIVATION_CHECKPOINTING=${USE_ACTIVATION_CHECKPOINTING} !!"
+    #     gpt_args+=(
+    #         "--checkpoint-activations"
+    #         "--checkpoint-num-layers ${ACT_CKPT_NUM_LAYERS}"
+    #     )
+    # fi
+    # export gpt_args
 }
 
 make_ds_hostfile() {
@@ -869,46 +860,6 @@ make_ds_hostfile() {
     cat "${hf}" >"${hostfile_deepspeed}"
     sed -e "s/$/ slots=${GPUS_PER_NODE}/" -i "${hostfile_deepspeed}"
 }
-
-###########################################
-# ezpz_setup
-#
-# 1. Clone [`saforem2/ezpz`](https://github.com/saforem2/ezpz) (if necessary)
-#    to `"${WORKING_DIR}/deps/ezpz/"`
-#
-# 2. Source [`ezpz/src/ezpz/bin/utils.sh`](https://github.com/saforem2/ezpz/blob/main/src/ezpz/bin/utils.sh)
-#    - This provides `{ezpz_setup_python, ezpz_setup_job}` (called below)
-#
-# 3. Call `ezpz_setup_python` (from `ezpz/bin/utils.sh`):
-#    - This will setup conda + virtual enviroment
-#
-# 4. Call `ezpz_setup_job` (from `ezpz/bin/utils.sh`):
-#    - This will parse `$PBS_*` variables and build launch cmd
-#
-# 3. Call `_ezpz_install` (from `Megatron-DeepSpeed/ALCF/helpers.sh`):
-#    - Install ezpz from `"${WORKING_DIR}/depz/ezpz/"`
-###########################################
-# ezpz_setup() {
-#     source <()
-#     ezdir="${WORKING_DIR}/deps/ezpz"
-#     if [[ -d "${ezdir}" ]]; then
-#         echo "Found ezpz in ${ezdir}"
-#     else
-#         mkdir -p "$(dirname "${ezdir}")"
-#         git clone https://github.com/saforem2/ezpz "${ezdir}"
-#     fi
-#     # shellcheck source=../deps/ezpz/src/ezpz/bin/utils.sh
-#     source "${ezdir}/src/ezpz/bin/utils.sh" || exit
-#     ezpz_setup_python
-#     ezpz_setup_job "$@"
-#     ezpz_pip_loc=$(python3 -m pip list | grep ezpz | awk '{print $NF}')
-#     if [[ -z "${ezpz_pip_loc:-}" ]]; then
-#         printf "[ezpz_install] Installing ezpz from %s\n" "${ezdir}"
-#         python3 -m pip install -e "${ezdir}" --require-virtualenv
-#     else
-#         printf "[ezpz_install] Found ezpz @ %s\n" "${ezpz_pip_loc}"
-#     fi
-# }
 
 #######################################################################
 # ezpz_test: Run simple test to make sure all nodes in working order
@@ -943,14 +894,25 @@ saveDSenv() {
 
 get_output_prefix() {
     # ---- Specify output location --------------------------------
-    pre="ws${WORLD_SIZE}_ds_stage${ZERO_STAGE}_nl${NLAYERS}"
-    pre="${pre}_hs${HIDDEN}_mb${MICRO_BATCH}"
-    pre="${pre}_seq${SEQ}_gb${GLOBAL_BATCH}"
-    pre="${pre}_sp${SP}_pp${PP}_tp${TP}_${DTYPE}_opt${OPT}"
-    pre="${pre}_lr${LR}_lwf${LR_WARMUP_FRAC}"
+    pre="ws${WORLD_SIZE}-ds-stage${ZERO_STAGE}-nl${NLAYERS}"
+    pre="${pre}-hs${HIDDEN}-mb${MICRO_BATCH}"
+    pre="${pre}-seq${SEQ}-gb${GLOBAL_BATCH}"
+    pre="${pre}-sp${SP}-pp${PP}-tp${TP}-${DTYPE}-opt${OPT}"
+    pre="${pre}-lr${LR}-lwf${LR_WARMUP_FRAC}"
+    pre="${MODEL_ARCH:-AuroraGPT}-${pre}"
+    local num_tokens_in_billions
+    num_tokens_in_billions=$((TRAIN_TOKENS / 10 ** 9))
+    pre="${pre}_ntok${num_tokens_in_billions}B"
     if [[ -n "${TOKENIZER_TYPE:-}" ]]; then
+        # _tok="${TOKENIZER_TYPE/Tokenizer//}" # Strip "Tokenizer" suffix if present
         _tok=$(echo "${TOKENIZER_TYPE}" | sed 's/Tokenizer//g') # noqa
         pre="${pre}_tok${_tok}"
+    fi
+    if [[ -n "${TOKENIZER_MODEL:-}" ]]; then
+        # _tm=$(echo "${TOKENIZER_MODEL}" | sed 's/\/_/g') # noqa
+        # replace slashes with underscores
+        _tm="${TOKENIZER_MODEL//\//_}" # noqa
+        pre="${pre}_tm${_tm}"
     fi
     if [[ -n "${LR_DECAY_ITERS}" ]]; then
         pre="${pre}_ldi${LR_DECAY_ITERS}"
@@ -1041,14 +1003,20 @@ make_data() {
 install_dependencies() {
     depsfile="${WORKING_DIR}/ALCF/requirements/requirements.txt"
     echo "[install_dependencies] Ensuring all dependencies from ${depsfile} installed..."
-    python3 -m pip install -r "${depsfile}" --require-virtualenv 1>/dev/null
+    python3 -m pip install -r "${depsfile}" --require-virtualenv
     if [[ ! -x "$(command -v deepspeed)" ]]; then
-        mn=$(ezpz_get_machine_name)
+        printf "[install_dependencies] No 'deepspeed' command found on %s in %s\n" "$$(ezpz_get_machine_name)" "$(which python3)"
+        printf "[install_dependencies] Attempting to install deepspeed via pip...\n"
+        python3 -m pip install deepspeed --require-virtualenv || {
+            printf "[install_dependencies] Failed to install deepspeed via pip on %s\n" "$(ezpz_get_machine_name)"
+            # printf "[install_dependencies] !! No deepsepeed in %s\n" "$(which python3)"
+            return 1
+        }
+        # mn=$(ezpz_get_machine_name)
         # if [[ "${mn}" == aurora* || "${mn}" == sunspot* ]]; then
         #     install_deepspeed_for_xpu || exit
         # fi
-        printf "[install_dependencies] No 'deepspeed' command found on %s" "${mn}"
-        printf "[install_dependencies] !! No deepsepeed in %s" "$(which python3)"
+        # printf "[install_dependencies] !! No deepsepeed in %s" "$(which python3)"
     fi
 }
 
@@ -1161,15 +1129,17 @@ setup_tokenizer_and_data() {
             "--merge-file ${MERGE_FILE}"
         )
     else
-        export TOKENIZER_TYPE="${TOKENIZER_TYPE:-Llama2Tokenizer}"
-        tm="${WORKING_DIR}/ALCF/tokenizer.model"           # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
+        # export TOKENIZER_TYPE="${TOKENIZER_TYPE:-Llama2Tokenizer}"
+        # tm="${WORKING_DIR}/ALCF/tokenizer.model"           # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
+        export TOKENIZER_TYPE="${TOKENIZER_TYPE:-HFTokenizer}"
+        tm="${TOKENIZER_MODEL:-google/gemma-7B}"           # fallback: Megatron-DeepSpeed/ALCF/tokenizer.model
         export TOKENIZER_MODEL="${TOKENIZER_MODEL:-${tm}}" # USE TOKENIZER_MODEL from env, else fallback from ^
         _tokenizer_flags+=(
             "--tokenizer-type ${TOKENIZER_TYPE}"
             "--tokenizer-model ${TOKENIZER_MODEL}"
         )
         # if [[ "${TOKENIZER_TYPE}" != "GPT2" ]]; then
-        echo "Using tokenizer: ${TOKENIZER_TYPE}. Setting up data with ${DATA_FILE_LIST:-}"
+        echo "Using tokenizer: ${TOKENIZER_TYPE}. Setting up data with ${dfl}"
         setData "${dfl}" || exit
     fi
     export DATA_FLAGS="${_data_flags[*]:-}"

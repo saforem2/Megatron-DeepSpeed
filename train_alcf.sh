@@ -5,8 +5,10 @@
 
 HERE=$(python3 -c 'import os; print(os.getcwd())') && export HERE
 GIT_BRANCH=$(git branch --show-current) && export GIT_BRANCH
-source <(curl -L https://bit.ly/ezpz-utils) || exit
-NO_COLOR=1 ezpz_setup_env || exit
+
+# shellcheck disable=SC1090
+source <(curl -L https://bit.ly/ezpz-utils)
+ezpz_setup_env
 
 if  command -v "ezpz-test"; then
     log_message INFO "${GREEN}✓${RESET} ezpz is already installed."
@@ -32,7 +34,11 @@ train_aGPT() {
     GIT_BRANCH=$(git branch --show-current) && export GIT_BRANCH
 
     # 2. source `ALCF/helpers.sh` for Megatron-DeepSpeed setup
-    source "${HERE}/ALCF/helpers.sh" || exit
+    source "${HERE}/ALCF/helpers.sh" || {
+      log_message ERROR "Unable to source ALCF/helpers.sh."
+      log_message ERROR "Please ensure you are in the correct directory."
+      return 1
+    }
 
     # 3. call `setup` from `./ALCF/helpers.sh`
     setup "$@" || exit
