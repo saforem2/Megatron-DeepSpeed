@@ -28,6 +28,22 @@ PP="${NHOSTS}" \
   - `sps`: samples per second
   - `tpgps`: tokens per GPU per second
 
+#### PyTorch 2.8 Results
+
+
+|  Nodes   | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                       |
+| :------: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :-------------------------------------------------------------------------- |
+| 8[^2273] |  96  |  8  | 12  |  1  |  1  |  1  |  12 | True  |    OOM |   OOM |     OOM | [northern-field-2273](https://wandb.ai/aurora_gpt/AuroraGPT/runs/odz3euea)  |
+| 8[^2274] |  96  |  8  |  6  |  2  |  1  |  1  |   6 | True  |  54.66 | 2.882 | 122.967 | [chocolate-cloud-2274](https://wandb.ai/aurora_gpt/AuroraGPT/runs/smov9k5d) |
+|    8     |  96  |  8  |  6  |  2  |  1  |  2  |  12 | True  |        |       |         |                                                                             |
+|    8     |  96  |  8  |  6  |  2  |  1  |  4  |  24 | True  |        |       |         |                                                                             |
+
+[^2273]: [northern-field-2273](https://wandb.ai/aurora_gpt/AuroraGPT/runs/odz3euea)
+[^2274]: [chocolate-cloud-2274](https://wandb.ai/aurora_gpt/AuroraGPT/runs/smov9k5d)
+
+#### PyTorch 2.5 Results
+
+Using the default PyTorch (2.5) provided by the `frameworks` module on Aurora
 
 |   Nodes   | NGPU | PP  | DP  | TP  | MBS | GAS | GBS | ACKPT | TFLOPS | `sps` | `tpgps` | wandb                                                                          |
 | :-------: | :--: | :-: | :-: | :-: | :-: | :-: | --: | :---: | -----: | ----: | ------: | :----------------------------------------------------------------------------- |
@@ -73,7 +89,7 @@ PP="${NHOSTS}" \
       ZERO_STAGE=3 \
       HEADS=64 \
       NLAYERS=80 \
-      NUM_KV_HEAD=8 \
+      [NUM_KV_HEAD](2025-07-07_num_kv_head.md)=8 \
       FFN_HIDDEN_SIZE=28672 \
       HIDDEN=8192 \
       MICRO_BATCH=1 \
