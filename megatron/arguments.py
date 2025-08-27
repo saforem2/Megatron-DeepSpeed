@@ -1750,14 +1750,14 @@ def _add_learning_rate_args(parser):
         type=float,
         default=0.001,
         help="fraction of lr-constant-(iters/samples) to use "
-        "for constant phase (as a float)",
+        "for infinite schedulers constant phase (as a float)",
     )
 
     group.add_argument(
         "--lr-cooldown-tokens",
         type=int,
         default=None,
-        help="number of tokens to cooldown learning rate over,"
+        help="number of tokens to cooldown learning rate over for infinite schedulers,"
         " If not None will override iter/sample-based decay",
     )
 
@@ -1765,7 +1765,20 @@ def _add_learning_rate_args(parser):
         "--lr-cooldown-fraction",
         type=float,
         default=0.65,
-        help="fraction -(iters/samples) to use for cooldownt phase (as a float)",
+        help="fraction -(iters/samples) to use for cooldown phase for infinite schedulers (as a float)",
+    )
+
+    group.add_argument(
+        "--lr_constant_plus_cooldown",
+        action="store_true",
+        help="Perform cooldown for constant decay style",
+    )
+
+    group.add_argument(
+        "--lr_constant_plus_cooldown_frac",
+        type=float,
+        default=0.05,
+        help="Cooldown frction for constant decay style",
     )
 
     group.add_argument(
