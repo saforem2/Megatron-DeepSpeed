@@ -15,6 +15,7 @@ class OptimizerParamScheduler(object):
         optimizer,
         max_lr,
         min_lr,
+        lr_constant_plus_cooldown_steps,
         lr_warmup_steps,
         lr_decay_steps,
         lr_decay_style,
@@ -47,8 +48,14 @@ class OptimizerParamScheduler(object):
         self.end_steps = lr_decay_steps
         assert self.lr_decay_steps > 0
         assert self.lr_warmup_steps < self.lr_decay_steps
-        assert self.lr_constant_steps < self.lr_decay_steps
- 
+        if self.lr_constant_steps is not None:
+            assert self.lr_constant_steps < self.lr_decay_steps
+
+        # for constant+cooldown
+        self.lr_constant_plus_cooldown = args.lr_constant_plus_cooldown
+        self.lr_constant_plus_cooldown_steps = lr_constant_plus_cooldown_steps
+
+        #for infinite schedulers
         self.timescale=timescale
         self.lr_decay_tokens = args.lr_decay_tokens
         self.num_tokens = 0
@@ -102,6 +109,7 @@ class OptimizerParamScheduler(object):
                 )
             )
 
+
         return self.start_wd + coeff * delta_wd
 
     def get_lr(self):
@@ -126,8 +134,37 @@ class OptimizerParamScheduler(object):
 
         # If the learning rate is constant, just return the initial value.
         if self.lr_decay_style == "constant":
-            return self.max_lr
+            if not self.lr_constant_plus_cooldown: #*
+                return self.max_lr
 
+            if self.lr_decay_tokens is None:
+            #steps based
+                num_steps_ = self.num_steps - self.lr_warmup_steps
+                total_steps_ = self.end_steps - self.lr_warmup_steps
+                if num_steps_ >= total_steps_ : return self.min_lr
+                cooldown_steps_ = int(self.lr_constant_plus_cooldown_steps)
+                if num_steps_ < total_steps_ -  cooldown_steps_: return self.max_lr
+                print(total_steps_)
+                print(cooldown_steps_)
+                ratio = (num_steps_ - (total_steps_ -  cooldown_steps_)) / float(cooldown_steps_)
+                if ratio < 0.0: ratio = 0.0
+                if ratio > 1.0: ratio = 1.0
+                return self.min_lr + (self.max_lr - self.min_lr) * (1.0 - math.sqrt(ratio))
+
+            else:
+            #token based
+                num_tokens_ = self.num_tokens - self.lr_warmup_tokens
+                total_tokens_ = self.end_tokens - self.lr_warmup_tokens
+                if num_tokens_ >= total_tokens_ : return self.min_lr
+                cooldown_tokens_ = int(self.lr_constant_plus_cooldown_tokens)
+                if num_tokens_ < total_tokens_ -  cooldown_tokens_: return self.max_lr
+                print(total_tokens_)
+                print(cooldown_tokens_)
+                ratio = (num_tokens_ - (total_tokens_ -  cooldown_tokens_)) / float(cooldown_tokens_)
+                if ratio < 0.0: ratio = 0.0
+                if ratio > 1.0: ratio = 1.0
+                return self.min_lr + (self.max_lr - self.min_lr) * (1.0 - math.sqrt(ratio))
+####################################################
         # For any steps larger than `self.lr_decay_steps`, use `self.min_lr`.
         if self.lr_decay_tokens is None:
             if self.num_steps > self.lr_decay_steps:
@@ -157,7 +194,7 @@ class OptimizerParamScheduler(object):
             delta_lr = self.max_lr - self.constant_lr
             if self.lr_decay_tokens is None:
                 num_steps_ = self.num_steps - self.lr_warmup_steps
-                cooldown_steps_ = self.lr_cooldown_steps - self.lr_warmup_steps
+                cooldown_steps_ = self.lr_cooldown_steps #- self.lr_warmup_steps
                 if self.lr_constant_steps is None:
                     raise Exception(
                         "Constant LR steps need to be provided for infinite schedulers"
@@ -165,15 +202,15 @@ class OptimizerParamScheduler(object):
                 if num_steps_ <= cooldown_steps_:
                     cooldown_ratio = float(num_steps_) / float(cooldown_steps_)
 
-                    if self.lr_decay_style == "infinite_cosine":
+                    if self.lr_decay_style == "infinite-cosine":
                         coeff = 0.5 * (math.cos(math.pi * cooldown_ratio) + 1.0)
                         lr = self.constant_lr + delta_lr * coeff
-                    else:  # infinite_inv_sqrt
+                    else:  # infinite-inv-sqrt
 
                         def inv_f(t):
                             return (1 / math.sqrt(1 + (self.timescale * t))) - 1
 
-                        coeff = inv_f(1) * inv_f(cooldown_ratio)
+                        coeff = inv_f(cooldown_ratio)/inv_f(1)
                         lr = self.max_lr - delta_lr * coeff
 
                 else:
@@ -186,7 +223,7 @@ class OptimizerParamScheduler(object):
 
                         end_steps_ = (
                             self.end_steps
-                            - self.warmup_steps
+                            - self.lr_warmup_steps
                             - cooldown_steps_
                             - self.lr_constant_steps
                         )
@@ -198,8 +235,8 @@ class OptimizerParamScheduler(object):
 
             # token based decay
             else:
-                num_tokens_ = self.num_tokens_ - self.lr_warmup_tokens
-                cooldown_tokens_ = self.lr_cooldown_tokens - self.lr_warmup_tokens
+                num_tokens_ = self.num_tokens - self.lr_warmup_tokens
+                cooldown_tokens_ = self.lr_cooldown_tokens # - self.lr_warmup_tokens
                 if self.constant_tokens is None:
                     raise Exception(
                         "Constant LR tokens need to be provided for infinite schedulers"
@@ -207,7 +244,7 @@ class OptimizerParamScheduler(object):
                 if num_tokens_ <= cooldown_tokens_:
                     cooldown_ratio = float(num_tokens_) / float(cooldown_tokens_)
 
-                    if self.lr_decay_style == "infinite_cosine":
+                    if self.lr_decay_style == "infinite-cosine":
                         coeff = 0.5 * (math.cos(math.pi * cooldown_ratio) + 1.0)
                         lr = self.constant_lr + delta_lr * coeff
                     else:  # infinite_inv_sqrt
@@ -215,7 +252,7 @@ class OptimizerParamScheduler(object):
                         def inv_f(t):
                             return (1 / math.sqrt(1 + (self.timescale * t))) - 1
 
-                        coeff = inv_f(1) * inv_f(cooldown_ratio)
+                        coeff = inv_f(cooldown_ratio)/inv_f(1)
                         lr = self.max_lr - delta_lr * coeff
                 else:
                     num_tokens_ = num_tokens_ - cooldown_tokens_
@@ -232,7 +269,7 @@ class OptimizerParamScheduler(object):
                             - cooldown_tokens_
                             - self.lr_constant_tokens
                         )
-                        num_tokens_ = num_tokens_ - constant_period
+                        num_tokens_ = num_tokens_ - self.lr_constant_tokens
                         exp_factor = (
                             -math.log(self.min_lr / self.constant_lr) / end_tokens_
                         )

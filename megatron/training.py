@@ -576,6 +576,10 @@ def get_optimizer_param_scheduler(optimizer):
             lr_constant_steps = args.lr_constant_fraction * lr_decay_steps
         else:
             lr_constant_steps = args.lr_constant_iters * args.global_batch_size
+        if args.lr_constant_plus_cooldown:
+            lr_constant_plus_cooldown_steps = args.lr_constant_plus_cooldown_frac * lr_decay_steps
+        else:
+            lr_constant_plus_cooldown_steps = 0
         lr_cooldown_steps = args.lr_cooldown_fraction * lr_decay_steps
     # Sample-based training.
     elif args.train_samples:
@@ -595,6 +599,10 @@ def get_optimizer_param_scheduler(optimizer):
             lr_constant_steps = args.lr_constant_fraction * lr_decay_steps
         else:
             lr_constant_steps = args.lr_constant_samples
+        if args.lr_constant_plus_cooldown:
+            lr_constant_plus_cooldown_steps = args.lr_constant_plus_cooldown_frac * lr_decay_steps
+        else:
+            lr_constant_plus_cooldown_steps = 0
         lr_cooldown_steps = args.lr_cooldown_fraction * lr_decay_steps
     else:
         raise Exception("either train-iters or train-samples should be provided.")
@@ -603,6 +611,7 @@ def get_optimizer_param_scheduler(optimizer):
         optimizer,
         max_lr=args.lr,
         min_lr=args.min_lr,
+        lr_constant_plus_cooldown_steps=lr_constant_plus_cooldown_steps,
         lr_warmup_steps=lr_warmup_steps,
         lr_decay_steps=lr_decay_steps,
         lr_decay_style=args.lr_decay_style,
