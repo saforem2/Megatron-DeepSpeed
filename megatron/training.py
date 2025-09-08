@@ -422,9 +422,9 @@ def get_model(
         mpu.get_pipeline_model_parallel_world_size() > 1
         and args.virtual_pipeline_model_parallel_size is not None
     ):
-        assert model_type != ModelType.encoder_and_decoder, (
-            "Interleaved schedule not supported for model with both encoder and decoder"
-        )
+        assert (
+            model_type != ModelType.encoder_and_decoder
+        ), "Interleaved schedule not supported for model with both encoder and decoder"
         model = []
         for i in range(args.virtual_pipeline_model_parallel_size):
             mpu.set_virtual_pipeline_model_parallel_rank(i)
@@ -443,9 +443,9 @@ def get_model(
         add_decoder = True
         if model_type == ModelType.encoder_and_decoder:
             if mpu.get_pipeline_model_parallel_world_size() > 1:
-                assert args.pipeline_model_parallel_split_rank is not None, (
-                    "Split rank needs to be specified for model with both encoder and decoder"
-                )
+                assert (
+                    args.pipeline_model_parallel_split_rank is not None
+                ), "Split rank needs to be specified for model with both encoder and decoder"
                 rank = mpu.get_pipeline_model_parallel_rank()
                 split_rank = args.pipeline_model_parallel_split_rank
                 world_size = mpu.get_pipeline_model_parallel_world_size()
@@ -471,9 +471,9 @@ def get_model(
     # Disallow training and inference with Transformer Engine
     # for non-GPT models
     args.allow_transformer_engine = all([type(m) == GPTModel for m in model])
-    assert args.allow_transformer_engine or args.transformer_impl == "local", (
-        "Transformer Engine is only approved for GPT models"
-    )
+    assert (
+        args.allow_transformer_engine or args.transformer_impl == "local"
+    ), "Transformer Engine is only approved for GPT models"
 
     # Set tensor model parallel attributes if not set.
     # Only parameters that are already tensor model parallel have these
@@ -564,12 +564,23 @@ def get_optimizer_param_scheduler(optimizer):
     if args.train_iters:
         if args.lr_decay_iters is None:
             args.lr_decay_iters = args.train_iters
+
         lr_decay_steps = args.lr_decay_iters * args.global_batch_size
         wd_incr_steps = args.train_iters * args.global_batch_size
         if args.lr_warmup_fraction is not None:
             lr_warmup_steps = args.lr_warmup_fraction * lr_decay_steps
         else:
             lr_warmup_steps = args.lr_warmup_iters * args.global_batch_size
+
+        if args.lr_constant_fraction is not None:
+            lr_constant_steps = args.lr_constant_fraction * lr_decay_steps
+        else:
+            lr_constant_steps = args.lr_constant_iters * args.global_batch_size
+        if args.lr_constant_plus_cooldown:
+            lr_constant_plus_cooldown_steps = args.lr_constant_plus_cooldown_frac * lr_decay_steps
+        else:
+            lr_constant_plus_cooldown_steps = 0
+        lr_cooldown_steps = args.lr_cooldown_fraction * lr_decay_steps
     # Sample-based training.
     elif args.train_samples:
         # We need to set training iters for later use. Technically
@@ -584,6 +595,15 @@ def get_optimizer_param_scheduler(optimizer):
             lr_warmup_steps = args.lr_warmup_fraction * lr_decay_steps
         else:
             lr_warmup_steps = args.lr_warmup_samples
+        if args.lr_constant_fraction is not None:
+            lr_constant_steps = args.lr_constant_fraction * lr_decay_steps
+        else:
+            lr_constant_steps = args.lr_constant_samples
+        if args.lr_constant_plus_cooldown:
+            lr_constant_plus_cooldown_steps = args.lr_constant_plus_cooldown_frac * lr_decay_steps
+        else:
+            lr_constant_plus_cooldown_steps = 0
+        lr_cooldown_steps = args.lr_cooldown_fraction * lr_decay_steps
     else:
         raise Exception("either train-iters or train-samples should be provided.")
 
@@ -591,6 +611,7 @@ def get_optimizer_param_scheduler(optimizer):
         optimizer,
         max_lr=args.lr,
         min_lr=args.min_lr,
+        lr_constant_plus_cooldown_steps=lr_constant_plus_cooldown_steps,
         lr_warmup_steps=lr_warmup_steps,
         lr_decay_steps=lr_decay_steps,
         lr_decay_style=args.lr_decay_style,
@@ -598,6 +619,9 @@ def get_optimizer_param_scheduler(optimizer):
         end_wd=args.end_weight_decay,
         wd_incr_steps=wd_incr_steps,
         wd_incr_style=args.weight_decay_incr_style,
+        constant_lr=args.constant_lr,
+        lr_constant_steps=lr_constant_steps,
+        lr_cooldown_steps=lr_cooldown_steps,
         use_checkpoint_opt_param_scheduler=args.use_checkpoint_opt_param_scheduler,
         override_opt_param_scheduler=args.override_opt_param_scheduler,
     )
@@ -623,9 +647,9 @@ def load_model_weights_only(model_provider_func):
             model=model[0], config=args.deepspeed_config_dict
         )
 
-        assert not isinstance(model, deepspeed.PipelineEngine), (
-            "Weight loading only mode is not supported in pipeline parallelism yet."
-        )
+        assert not isinstance(
+            model, deepspeed.PipelineEngine
+        ), "Weight loading only mode is not supported in pipeline parallelism yet."
         model = [model]
     print_datetime("before load checkpoint")
     if args.load is not None:
@@ -685,6 +709,7 @@ def setup_model_and_optimizer(
         if teacher:
             optimizer = None
         else:
+
             optimizer = get_megatron_optimizer(
                 model, no_wd_decay_cond, scale_lr_cond, lr_mult
             )
@@ -1002,6 +1027,7 @@ def train(
     write_args_to_tensorboard()
     assert accelerator is not None
     setup_profiler(args, accelerator.device_name())
+
     if args.random_ltd:
         # random-ltd requires different randomness on each rank
         import random
@@ -1043,6 +1069,197 @@ def train(
                 args.train_range_to_skip[1::2],
             )
         )
+
+    # Learning rate finder mode
+    if hasattr(args, "lr_finder") and args.lr_finder:
+        # Calculate number of iterations to use (10% of train_iters)
+        finder_iters = max(1, int(args.train_iters * 0.1))
+
+        # Initialize tracking variables for LR finder
+        lr_finder_losses = []
+        lr_finder_lrs = []
+
+        # Initialize loss smoothing variables
+        avg_loss = 0.0
+        best_loss = float("inf")
+        batch_num = 0
+        beta = 0.98  # Smoothing factor
+
+        # Set initial learning rate and calculate multiplier
+        init_lr = 1e-6
+        max_lr = 1.0
+        mult = (max_lr / init_lr) ** (1 / finder_iters)
+
+        # Set initial learning rate
+        curr_lr = init_lr
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = curr_lr
+
+        # Turn on training mode which enables dropout
+        for model_module in model:
+            model_module.train()
+
+        # Get configuration for training
+        config = core_transformer_config_from_args(args)
+        if not args.deepspeed:
+            config.grad_scale_func = optimizer.scale_loss
+        config.timers = timers
+
+        log.info(
+            f"Running learning rate finder for {finder_iters} iterations (10% of {args.train_iters})"
+        )
+
+        # convenience handles for DP sync
+        dp_group = mpu.get_data_parallel_group()
+        dev = torch.device(DEVICE_TYPE)  
+
+        # Main LR finder loop
+        for i in range(finder_iters):
+            # Execute training step
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = train_step(
+                forward_step_func,
+                train_data_iterator,
+                model,
+                optimizer,
+                opt_param_scheduler,
+                config,
+            )
+
+            # --- MAKE skipped_iter GLOBAL (any rank skip => all skip) ---
+            if tdist.is_available() and tdist.is_initialized():
+                _skip = torch.tensor([1 if skipped_iter else 0], device=dev)
+                tdist.all_reduce(_skip, op=tdist.ReduceOp.MAX, group=dp_group)
+                skipped_iter = bool(_skip.item())
+
+            # ---- PRESERVE ORIGINAL SEMANTICS: do NOT advance LR when skipped ----
+            if skipped_iter:
+                # Keep control flow identical across ranks
+                continue
+
+            # Get loss value (use first available loss if multiple present).
+            # Non-pipeline-last stages return {}, so contribute 0.
+            if "lm loss" in loss_dict:
+                local_loss = loss_dict["lm loss"]
+            elif loss_dict:
+                local_loss = next(iter(loss_dict.values()))
+            else:
+                local_loss = 0.0
+
+            if isinstance(local_loss, torch.Tensor):
+                local_loss = local_loss.item()
+
+            # --- REDUCE loss across DP (average of contributing ranks) ---
+            loss_t = torch.tensor([float(local_loss)], device=dev)
+            # Only pipeline-last ranks contribute 1.0 to the denominator
+            contrib = 1.0 if mpu.is_pipeline_last_stage(ignore_virtual=True) else 0.0
+            denom_t = torch.tensor([contrib], device=dev)
+
+            if tdist.is_available() and tdist.is_initialized():
+                tdist.all_reduce(loss_t, op=tdist.ReduceOp.SUM, group=dp_group)
+                tdist.all_reduce(denom_t, op=tdist.ReduceOp.SUM, group=dp_group)
+
+            dp_count = max(1.0, float(denom_t.item()))
+            loss_val = float(loss_t.item()) / dp_count
+
+            # Update batch counter
+            batch_num += 1
+
+            # Compute smoothed loss
+            avg_loss = beta * avg_loss + (1 - beta) * loss_val
+            smoothed_loss = avg_loss / (1 - beta**batch_num)
+
+            # Update best_loss with the SAME smoothed_loss across all ranks
+            if smoothed_loss < best_loss or batch_num == 1:
+                best_loss = smoothed_loss
+
+          #  explode = (batch_num > 1 and smoothed_loss > 4 * best_loss)
+    
+
+           # if explode:
+           #     if mpu.get_data_parallel_rank() == 0:
+           #         log.info(f"Loss exploding at lr={curr_lr:.8f}, stopping LR finder")
+           #     break
+
+            ## Record the best loss (use the same global smoothed_loss)
+            #if smoothed_loss < best_loss or batch_num == 1:
+            #    best_loss = smoothed_loss
+
+            # --- GLOBALIZE the "loss exploding" decision (any rank => all ranks) ---
+            #explode_local = (batch_num > 1 and smoothed_loss > 4 * best_loss)
+            #print(f"Rank {mpu.get_data_parallel_rank()}: explode_local={explode_local}")
+            #if mpu.get_data_parallel_rank() == 0:
+                
+            #    print(f"Iter {i}: batch_num={batch_num}, smoothed_loss={smoothed_loss:.8f}, best_loss={best_loss:.8f}, ratio={smoothed_loss/best_loss:.2f}")
+            #if tdist.is_available() and tdist.is_initialized():
+            #    _exp = torch.tensor([1 if explode_local else 0], device=dev)
+            #    tdist.all_reduce(_exp, op=tdist.ReduceOp.MAX, group=dp_group)
+            #    explode = bool(_exp.item())
+            #else:
+            #    explode = explode_local
+
+            
+
+            #if explode:
+            #    if mpu.get_data_parallel_rank() == 0:
+            #        log.info(f"Loss exploding at lr={curr_lr:.8f}, stopping LR finder")
+                # Keep everyone in lockstep before breaking
+            #    if tdist.is_available() and tdist.is_initialized():
+            #        tdist.barrier(group=dp_group)
+            #    break
+
+            # Record values for plotting
+            lr_finder_losses.append(smoothed_loss)
+            lr_finder_lrs.append(curr_lr)
+
+            # Print progress
+            if (i + 1) % args.log_interval == 0 and mpu.get_data_parallel_rank() == 0:
+                log.info(
+                    f"LR Finder: iteration {i+1}/{finder_iters}, "
+                    f"lr: {curr_lr:.8f}, loss: {smoothed_loss:.4f}"
+                )
+
+            # Update the learning rate for the next step (bypassing scheduler)
+            curr_lr *= mult
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = curr_lr
+
+        # Save raw data (on rank 0 only)
+        if mpu.get_data_parallel_rank() == 0:
+            # Create the results directory if it doesn't exist
+            os.makedirs(f"{args.save}/lr_finder", exist_ok=True)
+
+            # Save raw data to a simple CSV file
+            import csv
+
+            with open(
+                f"{args.save}/lr_finder/lr_finder_data.csv", "w", newline=""
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["learning_rate", "loss"])
+                for lr, loss in zip(lr_finder_lrs, lr_finder_losses):
+                    writer.writerow([lr, loss])
+
+            # Also save as numpy arrays for convenience
+            try:
+                import numpy as np
+
+                np.savez(
+                    f"{args.save}/lr_finder/lr_finder_data.npz",
+                    learning_rates=np.array(lr_finder_lrs),
+                    losses=np.array(lr_finder_losses),
+                )
+            except ImportError:
+                pass
+
+            log.info(f"LR finder completed. Results saved to {args.save}/lr_finder/")
+
+        # Ensure all ranks exit LR-finder together (prevents stragglers)
+        if tdist.is_available() and tdist.is_initialized():
+            tdist.barrier(group=dp_group)
+
+        # Return after LR finder is done
+        return args.iteration
+
     while iteration < args.train_iters and (
         args.train_tokens is None or args.consumed_train_tokens < args.train_tokens
     ):
@@ -1514,9 +1731,9 @@ def build_train_valid_test_data_loaders(build_train_valid_test_datasets_provider
     log.info("> building train, validation, and test datasets ...")
     # Backward compatibility, assume fixed batch size.
     if args.iteration > 0 and args.consumed_train_samples == 0:
-        assert args.train_samples is None, (
-            "only backward compatiblity support for iteration-based training"
-        )
+        assert (
+            args.train_samples is None
+        ), "only backward compatiblity support for iteration-based training"
         args.consumed_train_samples = args.iteration * args.global_batch_size
     if args.iteration > 0 and args.consumed_valid_samples == 0:
         if args.train_samples is None:

@@ -1,6 +1,131 @@
 # Megatron-DeepSpeed @ ALCF
 
 > [!IMPORTANT]
+> [`train_alcf.sh`](https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/train_alcf.sh)
+> is the main entry point for training @ ALCF
+
+## 🐣 Getting Started
+
+- 🏃‍♂️ Run Training:
+
+    ```bash
+    git clone https://github.com/argonne-lcf/Megatron-DeepSpeed
+    cd Megatron-DeepSpeed
+
+    # for PyTorch 2.5 environment (default):
+    source <(curl -L https://bit.ly/ezpz-utils) && ezpz_setup_env
+    # for PyTorch 2.8: ezpz_setup_env_pt28_aurora ⤴
+    # for PyTorch 2.8: ezpz_setup_env_pt28_aurora
+
+    # install dependencies
+    python3 -m pip install \
+        --require-virtualenv \
+        tensorboard deepspeed \
+        "git+https://github.com/saforem2/ezpz"
+
+    # test setup
+    ezpz-test
+
+    # run training
+    bash train_alcf.sh
+    ```
+
+> [!TIP]
+> To enable logging with [Weights & Biases](https://wandb.ai/) (`wandb`),
+> we need to install and login:
+>
+> ```bash
+> python3 -m pip install wandb --upgrade
+> wandb login
+> ```
+>
+> **NOTE**: W\&B can be disabled by setting `export WANDB_DISABLED=1`
+>
+> See [`wandb`: Quickstart](https://docs.wandb.ai/quickstart) for
+> additional information
+
+This will default to using the default AuroraGPT-7B architecture with the
+full [Dolma (v1.7)](https://huggingface.co/datasets/allenai/dolma)
+dataset.
+
+## ⚙️ Configuration
+
+This is a simple subset of configurable options.
+
+The full list (as well as their default values) can be found in
+[ALCF / `helpers.sh`](https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/ALCF/helpers.sh)
+
+Any additional arguments passed to [`train_alcf.sh`](../train_alcf.sh) will be
+forwarded to the argument parser in
+[`pretrain_gpt_alcf.py`](../pretrain_gpt_alcf.py)
+
+### Environment Overrides
+
+- `DTYPE`: Data type
+- `DATA_FILE_LIST`: Data file list
+- `FFN_HIDDEN_SIZE`: Feedforward Neural Network projection size
+- `GRAD_ACC_STEPS`: Gradient accumulation steps
+- `HEADS`: Number of attention heads
+- `HIDDEN`: Hidden size
+- `MICRO_BATCH`: Micro batch size
+- `NO_FLASH_ATTN`: No Flash Attention
+- `NLAYERS`: Number of layers
+- `NUM_KV_HEAD`: Number of key-value heads
+- `OPT`: Optimizer
+    - `adam`
+    - `adam8bit`
+    - `adamw`
+    - `adamwschedulefree`
+    - `apex.adam`
+    - `apex.sgd`
+    - `ds.fusedlamb`
+    - `ds.onebitlamb`
+    - `galoreadamw`
+    - `galoreadamw8bit`
+    - `galoreadamw8bitperlayer`
+    - `ipex.fusedlamb`
+    - `ipex.lamb`
+    - `shampoo`
+    - `sgd`
+    - `sgdschedulefree`
+    - `sophiag`
+- `PP`: Pipeline parallelism degree
+- `SEQ`: Sequence length
+- `SP`: Sequence parallelism (Ulysses) degree
+- `TP`: Tensor parallelism degree
+- `TRAIN_TOKENS`: Number of training tokens
+- `TRAIN_ITERS`: Number of training iterations
+- `USE_ACTIVATION_CHECKPOINTING`: Use activation checkpointing
+- `WEIGHT_DECAY`: Weight decay
+- `ZERO_STAGE`: Zero stage
+
+---
+
+<details closed><summary>Deprecated:</summary>
+
+<!--
+<details closed><summary>[Optional: Setup WandB]</summary>
+
+To enable [Weights & Biases](https://wandb.ai/) (WandB) logging,
+we need to install and login:
+
+```bash
+python3 -m pip install wandb --upgrade
+wandb login
+```
+
+> **NOTE**: WandB can be disabled by setting `export WANDB_DISABLED=1`
+
+See [`wandb`: Quickstart](https://docs.wandb.ai/quickstart) for
+additional information
+
+</details>
+-->
+
+
+
+
+> [!IMPORTANT]
 > [`train_aGPT_7B.sh`](https://github.com/argonne-lcf/Megatron-DeepSpeed/blob/main/train_aGPT_7B.sh) is the main entry point for launching
 > distributed training on {Polaris, Aurora, Sunspot} @ ALCF.
 
@@ -198,6 +323,8 @@ cd /eagle/datasets/dolma/utils
       ```
 
       🤔
+</details>
+
 </details>
 
 </details>
