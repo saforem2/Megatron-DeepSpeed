@@ -132,6 +132,7 @@ def build_train_valid_test_datasets(
                 return self.dataset
 
         class BuildCorpusDataset(torch.utils.data.Dataset):
+
             @dlp.log
             def __init__(self, dataset_builders):
                 self.dataset_builders = dataset_builders
@@ -151,14 +152,20 @@ def build_train_valid_test_datasets(
                     dataset_sample_index = np.zeros(self.num_samples, dtype=np.int64)
                     weights = num_samples_list / self.num_samples
                     helpers.build_blending_indices(
-                        dataset_index, dataset_sample_index,
-                        weights, self.num_datasets, self.num_samples,
-                        torch.distributed.get_rank() == 0)
-                    log.debug(f"> elapsed time for building blendable dataset indices for corpus {self.dataset_builders[0].corpus}: "
-                             "{:.2f} (sec)".format(time.time() - start_time))
+                        dataset_index,
+                        dataset_sample_index,
+                        weights,
+                        self.num_datasets,
+                        self.num_samples,
+                        torch.distributed.get_rank() == 0,
+                    )
+                    log.debug(
+                        f"> elapsed time for building blendable dataset indices for corpus {self.dataset_builders[0].corpus}: "
+                        "{:.2f} (sec)".format(time.time() - start_time)
+                    )
                     return dataset_index, dataset_sample_index
 
-
+                @dlp.log
                 def _build_indices_concat():
                     start_time = time.time()
                     dataset_index = np.zeros(self.num_samples, dtype=np.int64)
@@ -175,11 +182,63 @@ def build_train_valid_test_datasets(
                         "{:.2f} (sec)".format(time.time() - start_time)
                     )
                     return dataset_index, dataset_sample_index
-                
-                if args.blend_sample_in_corpus:
-                    self.dataset_index, self.dataset_sample_index = _build_indices_blended()                    
-                else:
-                    self.dataset_index, self.dataset_sample_index = _build_indices_concat()
+            
+                def _build_indices():
+                    if args.blend_sample_in_corpus:
+                        return _build_indices_blended()
+                    else:
+                        return _build_indices_concat()
+
+                def _cache_indices():
+                    desc = self.dataset_builders[0].corpus
+                    desc += f"\n {self.num_samples}"
+                    self.dataset_index = np.zeros(self.num_samples, dtype=np.int64)
+                    self.dataset_sample_index = np.zeros(self.num_samples, dtype=np.int64)
+                    if data_cache_path:
+                        desc_hash = hashlib.md5(desc.encode('utf-8')).hexdigest()
+                        desc_path = os.path.join(data_cache_path, desc_hash + ".dsc")
+                        index_path = os.path.join(data_cache_path, desc_hash + "_index.npy")
+                        sample_index_path = os.path.join(data_cache_path, desc_hash + "_sample_index.npy")
+                        cache_hit = os.path.isfile(index_path) and os.path.isfile(sample_index_path)
+                        cache_success = True
+                        if torch.distributed.get_rank() == 0 and not cache_hit:
+                            print(' > WARNING: could not find index map files for blendable'
+                                  ' dataset, building indices on rank 0 ...', flush=True)
+                            dataset_index, dataset_sample_index = _build_indices()
+                            try:
+                                log.debug(" > saving index map files")
+                                start_time = time.perf_counter()
+                                os.makedirs(os.path.dirname(index_path), exist_ok=True)
+                                with open(desc_path, 'wt') as fd:
+                                    fd.write(desc)
+                                    np.save(index_path, dataset_index, allow_pickle=True)
+                                    np.save(sample_index_path, dataset_sample_index,
+                                            allow_pickle=True)
+                                log.info(f" > finished saving {self.dataset_builders[0].corpus} corpus index map files in {time.perf_counter() - start_time} seconds")
+                            except OSError:
+                                print(f'There was an error trying to create the data cache directory ({data_cache_path})')
+                                print('or a file in it. This is set with the --data-cache-path argument. Please')
+                                print('ensure you have write access to this directory or specify one that you do have')
+                                print('write access to.')
+                                cache_success = False
+                            self.dataset_index = dataset_index
+                            self.dataset_sample_index = dataset_sample_index
+                        torch.distributed.barrier(group=mpu.get_data_parallel_group())
+                        torch.distributed.barrier(group=mpu.get_pipeline_model_parallel_group())
+                        torch.distributed.barrier(group=mpu.get_data_parallel_group())
+            
+                        start_time = time.perf_counter()
+                        log.info(f'> loading {self.dataset_builders[0].corpus} corpus dataset index: {index_path}')
+                        self.dataset_index = np.load(index_path, allow_pickle=True, mmap_mode='r')
+                        assert self.dataset_index.size == self.num_samples
+                        log.info(f'> loading {self.dataset_builders[0].corpus} corpus dataset sample index: {sample_index_path}')
+                        self.dataset_sample_index = np.load(sample_index_path, allow_pickle=True, mmap_mode='r')
+                        assert self.dataset_sample_index.size == self.num_samples
+                        log.info(f'> finished loading in {time.perf_counter() - start_time} seconds')
+                    else:
+                        self.dataset_index, self.dataset_sample_index = _build_indices()
+
+                _cache_indices()
                     
                 np_rng = np.random.RandomState(seed=dataset_builders[0].seed)
                 self.shuffle_index = np.arange(self.num_samples)
@@ -189,7 +248,7 @@ def build_train_valid_test_datasets(
                     self.desc += dataset_builders[i].prefix + ","
 
                 log.info(
-                    f"[BuildConcatDataset] Caught {args.shuffle_sample_in_corpus=} across"
+                    f"[BuildCorpusDataset] Caught {args.shuffle_sample_in_corpus=} across"
                     f" {self.num_samples} samples"
                 )
                 self.desc += (
@@ -222,6 +281,7 @@ def build_train_valid_test_datasets(
         test_datasets = []
         # Build individual datasets.
         args = get_args()
+
         @dlp.log
         def build_corpus_datasets(dataset_type="train"):
             start_time = time.time()
@@ -415,7 +475,8 @@ def _build_train_valid_test_datasets(
     def print_split_stats(name, index):
         log.debug("    {}:".format(name))
         log.debug(
-            "     document indices in [{}, {}) total of {} " "documents".format(
+            "     document indices in [{}, {}) total of {} "
+            "documents".format(
                 splits[index], splits[index + 1], splits[index + 1] - splits[index]
             )
         )
@@ -481,7 +542,8 @@ def _build_train_valid_test_datasets_single(
     def print_split_stats(name, index):
         log.debug("    {}:".format(name))
         log.debug(
-            "     document indices in [{}, {}) total of {} " "documents".format(
+            "     document indices in [{}, {}) total of {} "
+            "documents".format(
                 splits[index], splits[index + 1], splits[index + 1] - splits[index]
             )
         )
@@ -601,9 +663,8 @@ def _build_dataset(
 
     log.debug("    {}:".format(dataset_name))
     log.debug(
-        "     document indices in [0, {}) total of {} " "documents".format(
-            total_num_of_documents, total_num_of_documents
-        )
+        "     document indices in [0, {}) total of {} "
+        "documents".format(total_num_of_documents, total_num_of_documents)
     )
 
     documents = np.arange(start=0, stop=total_num_of_documents, step=1, dtype=np.int32)
@@ -631,9 +692,8 @@ def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
     start_time = time.time()
     indexed_dataset = make_indexed_dataset(data_prefix, data_impl, skip_warmup)
     log.debug(
-        " > finished creating indexed dataset in {:4f} " "seconds".format(
-            time.time() - start_time
-        )
+        " > finished creating indexed dataset in {:4f} "
+        "seconds".format(time.time() - start_time)
     )
     log.debug("    number of documents: {}".format(indexed_dataset.sizes.shape[0]))
 
@@ -641,6 +701,7 @@ def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
 
 
 class GPTDataset(torch.utils.data.Dataset):
+
     @dlp.log
     def __init__(
         self,
@@ -1077,9 +1138,8 @@ def _build_sample_idx(sizes, doc_idx, seq_length, num_epochs, tokens_per_epoch):
 def _build_shuffle_idx(num_samples, total_size, np_rng):
     """Build the range [0, size) and shuffle."""
     log.debug(
-        " > building shuffle index with split [0, {}) and [{}, {}) " "...".format(
-            num_samples, num_samples, total_size
-        )
+        " > building shuffle index with split [0, {}) and [{}, {}) "
+        "...".format(num_samples, num_samples, total_size)
     )
 
     dtype_ = np.uint32
