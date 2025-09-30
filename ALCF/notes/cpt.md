@@ -98,18 +98,30 @@ LOAD=path/to/your/universal/checkpoint
 SAVE=path/to/where/you/want/to/save/checkpoints
 --universal-checkpoint to load a universal checkpoint
 ```
-## New agpt runs (phase 1 -> phase 2)
+## New agpt runs (phase 1 -> phase 2: weak distribution shift)
 For the new runs, we are using a constant LR with cooldowns. The advantage of using a constant LR is to forego the need of rewarming. Furthermore, with the cooldown, one can train a model to convergence at any point of training without committing to a token budget.
 
 To do CPT here, 
 1. Convert checkpoint to an universal checkpoint, **YOU NEED TO USE A CHECKPOINT AT LR=LR_max i.e. BEFORE COOLING DOWN**
-2.  Mix the datasets as above
+2.  Mix the datasets as above, I would try different mixing weights here to experiment with
 3. set `export LR_WARMUP_FRAC=0.0` in order to not rewarm
 4. Run
 ```bash
 DATA_FILE_LIST=./ALCF/data-lists/aurora/mix_lucid_papers_dolma.txt LOAD=/flare/AuroraGPT/AuroraGPT-v0/checkpoint-copies/checkpoints/ws768_ds_stage1_nl32_hs4096_mb1_seq4096_gb3072_sp1_pp1_tp1_bf16_optadamw_lr_lwf_flash TRAIN_TOKENS=$((22*10**9)) GRAD_ACC_STEPS=16 LR=0.0002 LR_DECAY_STYLE=constant bash train_alcf.sh --universal-checkpoint --finetune --lr_constant_plus_cooldown 
 ```
-5. If loss curve not recovering after a while or loss is diverging, one can take a converged checkpoint **i.e after cooling it down** and experiment with rewarming the LR to a different value, data mixing strategy etc as we did with the legacy model.
+5. If loss curve not recovering after a while or loss is diverging, one can:
+   - take a converged checkpoint **i.e after cooling it down** and experiment with rewarming the LR to a different value, data mixing strategy etc as we did with the legacy model.
+   - If still no luck, I'd:
+     a. take an earlier not converged checkpoint
+     b. Continue training with the base dataset with a cosine scheduler decaying to **LR_max/100** or cooldown to **LR_max/100**. (I would experiment with both if resources allow)
+     c. Introduce the new dataset at **LR=LR_max/5**. When introducing the new dataset, you use a mixed one i.e you should not exclusively use the new dataset.This is basically the recipe here [recipe](https://arxiv.org/pdf/2407.07263v1)
+
+My guess is that since the distribution shift is not too strong between phase I and phase II data, you will not need to experiment with step 5.
+
+## New agpt runs (phase 2 -> phase 3 or phase 3 -> phase 4: strong distribution shift)
+I'd try steps 1-4 above and put more weight on phase 2 (then phase 3) data when mixing in the new datasets. If no luck, step 5 should work here.
+ 
+     
 
 ## To do list
 Follow and implement the [recipe](https://arxiv.org/pdf/2407.07263v1) where the new dataset is incrementally introduced. This might be advantageous for example when the new dataset is QAs as opposed to pure text. Here:
