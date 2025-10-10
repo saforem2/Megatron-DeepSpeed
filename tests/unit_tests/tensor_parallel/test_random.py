@@ -6,6 +6,10 @@ from tests.unit_tests.test_utilities import Utils
 import pytest
 import torch
 
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="CUDA is required for RNG tracker tests"
+)
+
 def test_cuda_rng_states_tracker():
     rng_tracker = CudaRNGStatesTracker()
     rng_tracker.set_states({"state1":1234})

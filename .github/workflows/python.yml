@@ -30,6 +30,17 @@ jobs:
         run: |
           which python
           python --version
-      - name: Install Megatron-DeepSpeed
+
+      - name: Install dependencies
         run: |
-          pip3 install .
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit_tests
+
+      - name: Run transformer tests
+        run: |
+          pytest tests/transformer

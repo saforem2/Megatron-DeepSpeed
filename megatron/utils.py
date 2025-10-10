@@ -19,7 +19,17 @@ from megatron.core.tensor_parallel import param_is_not_tensor_parallel_duplicate
 from megatron.model.module import param_is_not_shared
 from megatron.model.rotary_pos_embedding import RotaryEmbedding
 
-import ezpz as ez
+try:
+    import ezpz as ez
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    class _EzStub:
+        @staticmethod
+        def get_rank():
+            if torch.distributed.is_available() and torch.distributed.is_initialized():
+                return torch.distributed.get_rank()
+            return 0
+
+    ez = _EzStub()
 
 ACCELERATOR = get_accelerator()
 assert ACCELERATOR is not None

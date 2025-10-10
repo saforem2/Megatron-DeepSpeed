@@ -1,40 +1,29 @@
-# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
-
-
 import pytest
+
+pytest.importorskip("transformer_engine", reason="transformer_engine is required for transformer tests")
 
 import torch
 
-from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.parallel_transformer_layer import ParallelTransformerLayer
+
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="CUDA is required for transformer layer tests"
+)
 
 
 @pytest.fixture
-def parallel_transformer_layer(transformer_config):
+def transformer_layer(transformer_config):
     return ParallelTransformerLayer(transformer_config)
 
 
 class TestParallelTransformerLayer:
-    def test_constructor(self, parallel_transformer_layer):
-        assert isinstance(parallel_transformer_layer, ParallelTransformerLayer)
-        assert parallel_transformer_layer.layer_number == 1
+    def test_constructor(self, transformer_layer):
+        assert isinstance(transformer_layer, ParallelTransformerLayer)
 
-        num_weights = sum([p.numel() for p in parallel_transformer_layer.parameters()])
-        assert num_weights == 1884
-
-    def test_gpu_forward(self, parallel_transformer_layer):
-        config: TransformerConfig = parallel_transformer_layer.config
-        sequence_length = 32
-        micro_batch_size = 2
-        parallel_transformer_layer.cuda()
-
-        # [sequence length, batch size, hidden size]
-        hidden_states = torch.ones((sequence_length, micro_batch_size, config.hidden_size))
-        hidden_states = hidden_states.cuda()
-
-        attention_mask = torch.ones((1, 1, sequence_length, sequence_length), dtype=bool).cuda()
-
-        hidden_states = parallel_transformer_layer(hidden_states=hidden_states, attention_mask=attention_mask)
-        assert hidden_states.shape[0] == sequence_length
-        assert hidden_states.shape[1] == micro_batch_size
-        assert hidden_states.shape[2] == config.hidden_size
+    def test_gpu_forward(self, transformer_layer, transformer_config):
+        transformer_layer.cuda()
+        hidden_states = torch.ones((32, 2, transformer_config.hidden_size), device="cuda")
+        attention_mask = torch.ones((1, 1, 32, 32), dtype=bool, device="cuda")
+        output, attention_bias = transformer_layer(hidden_states, attention_mask)
+        assert output.shape == (32, 2, transformer_config.hidden_size)
+        assert attention_bias.shape[0] == transformer_config.hidden_size

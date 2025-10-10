@@ -1,10 +1,14 @@
-# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
-
 import pytest
+
+pytest.importorskip("transformer_engine", reason="transformer_engine is required for transformer tests")
 
 import torch
 
 from megatron.core.transformer.parallel_attention import ParallelAttention
+
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="CUDA is required for attention tests"
+)
 
 
 @pytest.fixture
@@ -14,7 +18,7 @@ def parallel_attention(transformer_config):
 
 @pytest.fixture
 def checkpointed_parallel_attention(transformer_config):
-    transformer_config.recompute_granularity = 'selective'
+    transformer_config.recompute_granularity = "selective"
     return ParallelAttention(transformer_config)
 
 
@@ -31,48 +35,37 @@ class TestParallelAttention:
         pass
 
     def test_gpu_forward(self, parallel_attention):
-
         config = parallel_attention.config
         sequence_length = 32
         micro_batch_size = 2
 
         parallel_attention.cuda()
 
-        # [sequence length, batch size, hidden size]
-        hidden_states = torch.ones((sequence_length, micro_batch_size, parallel_attention.config.hidden_size))
-        hidden_states = hidden_states.cuda()
-
-        attention_mask = torch.ones((1, 1, sequence_length, sequence_length), dtype=bool).cuda()
+        hidden_states = torch.ones(
+            (sequence_length, micro_batch_size, parallel_attention.config.hidden_size), device="cuda"
+        )
+        attention_mask = torch.ones((1, 1, sequence_length, sequence_length), dtype=bool, device="cuda")
 
         output, bias = parallel_attention(hidden_states, attention_mask)
 
         assert config.recompute_granularity is None
-        assert output.shape[0] == sequence_length
-        assert output.shape[1] == micro_batch_size
-        assert output.shape[2] == config.hidden_size
+        assert output.shape == (sequence_length, micro_batch_size, config.hidden_size)
         assert bias.shape[0] == config.hidden_size
 
     def test_checkpointed_gpu_forward(self, checkpointed_parallel_attention):
-
         config = checkpointed_parallel_attention.config
-
         sequence_length = 32
         micro_batch_size = 2
 
         checkpointed_parallel_attention.cuda()
 
-        # [sequence length, batch size, hidden size]
         hidden_states = torch.ones(
-            (sequence_length, micro_batch_size, checkpointed_parallel_attention.config.hidden_size)
+            (sequence_length, micro_batch_size, checkpointed_parallel_attention.config.hidden_size), device="cuda"
         )
-        hidden_states = hidden_states.cuda()
-
-        attention_mask = torch.ones((1, 1, sequence_length, sequence_length), dtype=bool).cuda()
+        attention_mask = torch.ones((1, 1, sequence_length, sequence_length), dtype=bool, device="cuda")
 
         output, bias = checkpointed_parallel_attention(hidden_states, attention_mask)
 
-        assert config.recompute_granularity == 'selective'
-        assert output.shape[0] == sequence_length
-        assert output.shape[1] == micro_batch_size
-        assert output.shape[2] == config.hidden_size
+        assert config.recompute_granularity == "selective"
+        assert output.shape == (sequence_length, micro_batch_size, config.hidden_size)
         assert bias.shape[0] == config.hidden_size

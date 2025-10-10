@@ -5,11 +5,16 @@
 from abc import ABC
 from abc import abstractmethod
 import time
+from typing import Any
 
 import torch
 from deepspeed.accelerator import get_accelerator
-from tensorboard.summary import Writer
 from packaging import version
+
+try:
+    from tensorboard.summary import Writer
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    Writer = Any  # type: ignore[assignment]
 
 try:
     import wandb

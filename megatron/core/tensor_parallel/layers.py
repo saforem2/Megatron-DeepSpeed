@@ -43,7 +43,16 @@ from .utils import (
     VocabUtility,
 )
 
-import deepspeed.runtime.activation_checkpointing.checkpointing as ds_checkpointing
+try:
+    import deepspeed.runtime.activation_checkpointing.checkpointing as ds_checkpointing
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    class _CheckpointStub:
+        @staticmethod
+        def checkpoint(function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+    ds_checkpointing = _CheckpointStub()
+
 from deepspeed.accelerator import get_accelerator
 
 _grad_accum_fusion_available = True
