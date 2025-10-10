@@ -14,7 +14,6 @@ import logging
 from megatron import get_args
 from megatron import get_timers
 from megatron import get_tensorboard_writer
-from megatron import get_wandb_writer
 from megatron import get_num_microbatches
 from megatron.core import mpu
 
@@ -50,10 +49,7 @@ from megatron.utils import (
     # update_rotary_pos_emb,
 )
 
-try:
-    import wandb
-except (ImportError, ModuleNotFoundError):
-    wandb = None
+from megatron.wandb_utils import is_wandb_available, log_wandb_metrics
 # The earliest we can measure the start time.
 # _TRAIN_START_TIME = time.time()
 
@@ -713,6 +709,12 @@ def training_log(
         )
         log_string += " [LM]TFLOPs={:.2f} |".format(tflops_lm_per_gpu)
         log_string += " [DS]TFLOPs={:.2f} |".format(tflops)
+        if is_wandb_available():
+            wandb_metrics |= {
+                "training/skiped_iterations": total_loss_dict[skipped_iters_key]
+            }
+            wandb_metrics |= {"training/nan_iterations": total_loss_dict[nan_iters_key]}
+            log_wandb_metrics(wandb_metrics, step=iteration)
         total_loss_dict[advanced_iters_key] = 0
         total_loss_dict[skipped_iters_key] = 0
         total_loss_dict[nan_iters_key] = 0
@@ -722,12 +724,6 @@ def training_log(
             # Report memory after optimizer state has been initialized.
             report_memory("(after {} iterations)".format(iteration))
             report_memory_flag = False
-        if wandb is not None and getattr(wandb, "run", None) is not None:
-            wandb_metrics |= {
-                "training/skiped_iterations": total_loss_dict[skipped_iters_key]
-            }
-            wandb_metrics |= {"training/nan_iterations": total_loss_dict[nan_iters_key]}
-            wandb.log(wandb_metrics)
         if timers is not None:
             timers.log(timers_to_log, normalizer=args.log_interval)
 

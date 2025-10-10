@@ -26,6 +26,7 @@ from megatron.utils import (
     throughput_calculator,
     num_floating_point_operations,
 )
+from megatron.wandb_utils import is_wandb_available, log_wandb_metrics
 
 
 RANK: int = ezpz.get_rank()
@@ -36,11 +37,6 @@ DEVICE: torch.device = torch.device(DEVICE_TYPE)
 log: logging.Logger = logging.getLogger(__name__)
 LOG_LEVEL: str = str(os.environ.get("LOG_LEVEL", "INFO")).upper()
 log.setLevel(LOG_LEVEL) if RANK == 0 else log.setLevel("CRITICAL")
-
-try:
-    import wandb
-except (ImportError, ModuleNotFoundError):
-    wandb = None
 
 
 dlp = Profile("TRAINING_LOG")
@@ -385,16 +381,12 @@ def training_log(
         log_string += " TFLOPs={:.2f} |".format(tflops_lm_per_gpu)
         # log_string += " [LM]TFLOPs={:.2f} |".format(tflops_lm_per_gpu)
         # log_string += " [DS]TFLOPs={:.2f} |".format(tflops)
-        if wandb is not None and getattr(wandb, "run", None) is not None:
+        if is_wandb_available():
             wandb_metrics |= {
                 "training/skiped_iterations": total_loss_dict[skipped_iters_key]
             }
             wandb_metrics |= {"training/nan_iterations": total_loss_dict[nan_iters_key]}
-            if getattr(wandb, "log", None) is not None:
-                assert callable(wandb.log), (
-                    f"wandb.log is not callable, got {type(wandb.log)}"
-                )
-                wandb.log(wandb_metrics)
+            log_wandb_metrics(wandb_metrics, step=iteration)
         total_loss_dict[advanced_iters_key] = 0
         total_loss_dict[skipped_iters_key] = 0
         total_loss_dict[nan_iters_key] = 0

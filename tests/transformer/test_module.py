@@ -1,22 +1,21 @@
-# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
-
 import pytest
-
 import torch
 
 from megatron.core.transformer.module import Float16Module, MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 
-DEVICE_CAPABILITY = None
-if torch.cuda.is_available():
-    DEVICE_CAPABILITY = torch.cuda.get_device_capability()
+pytest.importorskip("transformer_engine", reason="transformer_engine is required for transformer tests")
+
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="CUDA is required for module tests"
+)
+
+DEVICE_CAPABILITY = torch.cuda.get_device_capability() if torch.cuda.is_available() else None
 
 
 class DummyModule(MegatronModule):
-    # def __init__(self, config: TransformerConfig, share_embeddings_and_output_weights=True):
     def __init__(self, config: TransformerConfig):
         super().__init__(config)
-
         self.linear = torch.nn.modules.Linear(in_features=2, out_features=1)
 
     def forward(self, x):
@@ -35,13 +34,8 @@ class TestMegatronModule:
         assert megatron_module.config.ffn_hidden_size == 48
         assert megatron_module.linear.weight.dtype == torch.float32
 
-        x = torch.ones((2, 2)).cuda()
+        x = torch.ones((2, 2), device="cuda")
         assert megatron_module(x).dtype == torch.float32
-
-        # TODO: test bad configs actually fail
-        # failed_module = megatron_module
-        # failed_module.fp16 = True
-        # failed_module.bf16 = True
 
 
 class TestFloat16Module:
@@ -54,14 +48,13 @@ class TestFloat16Module:
         assert fp16_module.config.ffn_hidden_size == 48
         assert fp16_module.module.linear.weight.dtype == torch.float16
 
-        x = torch.ones((2, 2)).cuda()
-        # inputs are converted to fp16 then outputs are converted to fp32
+        x = torch.ones((2, 2), device="cuda")
         assert fp16_module(x).dtype == torch.float32
 
-    pytest.mark.skipif(
-        not DEVICE_CAPABILITY or DEVICE_CAPABILITY[0] < 8, reason='bfloat16 is not supported on this device'
+    @pytest.mark.skipif(
+        not DEVICE_CAPABILITY or DEVICE_CAPABILITY[0] < 8,
+        reason="bfloat16 is not supported on this device",
     )
-
     def test_bf16_module(self, transformer_config, megatron_module):
         transformer_config.bf16 = True
         bf16_module = Float16Module(config=transformer_config, module=megatron_module)
@@ -71,7 +64,5 @@ class TestFloat16Module:
         assert bf16_module.config.ffn_hidden_size == 48
         assert bf16_module.module.linear.weight.dtype == torch.bfloat16
 
-        x = torch.ones((2, 2)).cuda()
-        # inputs are converted to bf16 then outputs are converted to fp32
+        x = torch.ones((2, 2), device="cuda")
         assert bf16_module(x).dtype == torch.float32
-

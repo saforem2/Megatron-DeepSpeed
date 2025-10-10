@@ -5,16 +5,18 @@
 from abc import ABC
 from abc import abstractmethod
 import time
+from typing import Any
 
 import torch
 from deepspeed.accelerator import get_accelerator
-from tensorboard.summary import Writer
 from packaging import version
 
 try:
-    import wandb
-except Exception:
-    wandb = None
+    from tensorboard.summary import Writer
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    Writer = Any  # type: ignore[assignment]
+
+from megatron.wandb_utils import log_wandb_metrics
 
 
 class TimerBase(ABC):
@@ -338,8 +340,11 @@ class Timers:
                 for k in name_to_min_max_time
             },
         }
-        if wandb is not None and getattr(wandb, "run", None) is not None:
-            wandb.log(timer_data, commit=False)
+        log_wandb_metrics(
+            timer_data,
+            step=timer_data.get("timers/iteration"),
+            commit=False,
+        )
         # =======
         #         if writer.is_enabled():
         # >>>>>>> 0d6e3793a1fc06eded9764ef15ad12bcc0281101

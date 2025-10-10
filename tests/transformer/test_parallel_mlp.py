@@ -3,6 +3,8 @@
 
 import pytest
 
+pytest.importorskip("transformer_engine", reason="transformer_engine is required for transformer tests")
+
 import torch
 import types
 

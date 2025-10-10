@@ -4,6 +4,8 @@
 ## Megatron-DeepSpeed
 DeepSpeed version of NVIDIA's Megatron-LM that adds additional support for several features such as MoE model training, Curriculum Learning, 3D Parallelism, and others. The ```examples_deepspeed/``` folder includes example scripts about the features supported by DeepSpeed.
 
+If you are getting started with the DeepSpeed fork, begin with the [Megatron-DeepSpeed Quickstart](docs/deepspeed_quickstart.md). It walks through environment setup, the tokenizer download helpers, and the unit/transformer test suites that the continuous integration workflow now executes. Contributors should also review [`CONTRIBUTING.md`](CONTRIBUTING.md) for coding standards and pull request expectations.
+
 ### Recent sync with NVIDIA/Megatron-LM
 In July 2023, we had a sync with the NVIDIA/Megatron-LM repo (where this repo is forked from) by git-merging 1100+ commits. Details can be found in the ```examples_deepspeed/rebase``` folder. Given the amount of merged commits, bugs can happen in the cases that we haven't tested, and your contribution (bug report, bug fix pull request) is highly welcomed. We also created a [backup branch](https://github.com/microsoft/Megatron-DeepSpeed/tree/before_rebase) which is the version before this sync. This backup branch is just for comparison tests and for temporary use when you need to debug the main branch. We do not plan to continue supporting the version before sync.
 

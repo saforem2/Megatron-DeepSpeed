@@ -2,10 +2,14 @@ import torch
 import megatron.core.parallel_state as ps
 import pytest
 from tests.unit_tests.test_utilities import Utils
-import os 
+import os
 
 rank = Utils.rank
 world_size = Utils.world_size
+
+pytestmark = pytest.mark.skipif(
+    world_size < 2, reason="model parallel tests require multiple ranks"
+)
 
 def test_initialize__and_destroy_model_parallel():
     with pytest.raises(AssertionError):

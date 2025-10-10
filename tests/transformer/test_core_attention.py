@@ -1,11 +1,14 @@
-# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
-
-
 import pytest
+
+pytest.importorskip("transformer_engine", reason="transformer_engine is required for transformer tests")
 
 import torch
 
 from megatron.core.transformer.core_attention import CoreAttention
+
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="CUDA is required for core attention tests"
+)
 
 
 @pytest.fixture
@@ -26,38 +29,28 @@ class TestCoreAttention:
         pass
 
     def test_gpu_forward(self, core_attention):
-
-        # destroy_global_memory_buffer()
-        # _set_global_memory_buffer()
-        # model_parallel_cuda_manual_seed(123)
-
         core_attention.cuda()
         config = core_attention.config
         sequence_length = 32
         micro_batch_size = 2
-        # query_layer (float): [sequence_length, micro_batch_size, num_attention_heads, hidden_size / num_attention_heads]
         query_layer = torch.ones(
             (
                 sequence_length,
                 micro_batch_size,
                 config.num_attention_heads,
                 config.hidden_size // config.num_attention_heads,
-            )
-        ).cuda()
+            ),
+            device="cuda",
+        )
 
-        key_layer = torch.ones_like(query_layer).cuda()
-
-        value_layer = torch.ones_like(query_layer).cuda()
-
-        attention_mask = torch.ones((1, 1, sequence_length, sequence_length), dtype=bool).cuda()
+        key_layer = torch.ones_like(query_layer, device="cuda")
+        value_layer = torch.ones_like(query_layer, device="cuda")
+        attention_mask = torch.ones((1, 1, sequence_length, sequence_length), dtype=bool, device="cuda")
 
         context_layer = core_attention(
             query_layer=query_layer, key_layer=key_layer, value_layer=value_layer, attention_mask=attention_mask
         )
 
-        assert context_layer.shape[0] == sequence_length
-        assert context_layer.shape[1] == micro_batch_size
-        assert context_layer.shape[2] == config.hidden_size
-        assert context_layer.device.type == 'cuda'
+        assert context_layer.shape == (sequence_length, micro_batch_size, config.hidden_size)
+        assert context_layer.device.type == "cuda"
         assert context_layer.dtype == torch.float32
-
