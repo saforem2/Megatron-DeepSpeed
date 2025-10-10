@@ -30,7 +30,6 @@ import torch
 import torch.distributed as tdist
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
-import wandb
 from megatron import (
     get_args,
     get_current_global_batch_size,
@@ -69,6 +68,7 @@ from megatron.utils import (
     unwrap_model,
     update_rotary_pos_emb,
 )
+from megatron.wandb_utils import is_wandb_available, log_wandb_metrics
 
 from megatron.profiler import (
     setup_profiler,
@@ -822,7 +822,11 @@ def setup_model_and_optimizer(
             ezpz.dist.synchronize()
             dtl = time.perf_counter() - t0
             try:
-                wandb.log({"timers/load-checkpoint": dtl}, step=args.iteration)
+                log_wandb_metrics(
+                    {"timers/load-checkpoint": dtl},
+                    step=args.iteration,
+                    commit=False,
+                )
             except Exception:
                 log.info(f"timers/load-checkpoint took {dtl:.3f} seconds")
             # timers("load-checkpoint").stop(barrier=True)
@@ -1636,8 +1640,8 @@ def evaluate_and_print_results(
         verbose,
     )
     key = "test" if test else "val"
-    if wandb is not None and wandb.run is not None:
-        wandb.log(
+    if is_wandb_available():
+        log_wandb_metrics(
             {
                 f"{key}/iteration": iteration,
                 **{f"{key}/{k}": v for k, v in total_loss_dict.items()},
@@ -1645,7 +1649,8 @@ def evaluate_and_print_results(
                     f"{key}/ppl_{k}": math.exp(min(20, v.item()))
                     for k, v in total_loss_dict.items()
                 },
-            }
+            },
+            step=iteration,
         )
     string = " validation loss at {} | ".format(prefix)
     for key in total_loss_dict:
