@@ -12,7 +12,7 @@ TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 python3 ALCF/ds_to_universal.py \
     --output_folder test_rollback/global_step136000_universal
 ```
 
-## Cooling Down
+## ☃️ Cooling Down
 
 - 256 Nodes:
   
@@ -31,7 +31,7 @@ TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 python3 ALCF/ds_to_universal.py \
           --lr_constant_plus_cooldown_frac=0.9
   ```
 
-Example:
+<details closed><summary>Example:</summary>
 
 ```bash
 #[🐍 aurora_frameworks-2025.2.0](👻 Megatron-DeepSpeed-aurora_frameworks-2025.2.0)
@@ -228,3 +228,6 @@ Application 5d196584 resources: utime=21540179s stime=2039451s maxrss=46631076KB
 [2025-11-10 12:30:19,247825][I][ezpz/launch:403:launch] Executing finished in 7795.27 seconds.
 [2025-11-10 12:30:19,248203][I][ezpz/launch:404:launch] Took 7795.28 seconds to run. Exiting.
 took: 2h 11m 1s
+```
+
+</details>
