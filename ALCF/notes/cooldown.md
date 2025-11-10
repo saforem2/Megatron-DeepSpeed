@@ -2,7 +2,7 @@
 
 - Cooled down over last $10\%$:
   - [volcanic-blaze-4312](https://wandb.ai/aurora_gpt/AuroraGPT/runs/7bjj8vgu/overview?nw=nwuserforemans)
-    ![](./assets/cooldown.png)
+    ![](./assets/cooldownHD.png)
 
 ## ♻️ Convert to Universal
 
