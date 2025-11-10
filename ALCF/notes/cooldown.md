@@ -1,6 +1,6 @@
 # 🧊 Cooling Down AuroraGPT-2B Checkpoints
 
-- Cooled down over last $10\%$:
+- Cooled down over last 10\%:
   - [volcanic-blaze-4312](https://wandb.ai/aurora_gpt/AuroraGPT/runs/7bjj8vgu/overview?nw=nwuserforemans)
     ![](./assets/cooldownHD.png)
 
