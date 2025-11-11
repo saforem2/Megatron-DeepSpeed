@@ -2,7 +2,7 @@
 
 - Cooled down over last 10\%:
   - [volcanic-blaze-4312](https://wandb.ai/aurora_gpt/AuroraGPT/runs/7bjj8vgu/overview?nw=nwuserforemans)
-    ![](./assets/cooldownHD.png)
+    ![Cooldown Comparison](./assets/cooldown.png)
 
 ## ♻️ Convert to Universal
 
@@ -15,7 +15,7 @@ TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 python3 ALCF/ds_to_universal.py \
 ## ☃️ Cooling Down
 
 - 256 Nodes:
-  
+
   ```bash
   LR_DECAY_STYLE=constant \
       OPT=ipex.fusedlamb \
