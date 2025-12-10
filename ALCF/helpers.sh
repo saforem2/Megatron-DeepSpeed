@@ -361,7 +361,7 @@ setupLauncher() {
 		make_ds_hostfile || exit
 		export LAUNCHER="deepspeed --hostfile $hfds --launcher MPICH ${EXEC}"
 	else
-		LAUNCHER="ezpz-launch ${EXEC}"
+		LAUNCHER="ezpz-launch python3 ${EXEC}"
 		# source <(curl -L https://bit.ly/ezpz-utils) && ezpz_setup_job
 		# echo "ezpz_launch: $(which ezpz_launch)"
 		# export -f ezpz_launch
