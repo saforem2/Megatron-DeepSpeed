@@ -231,7 +231,7 @@ setup_run_cmd() {
 		"--num-attention-heads=${HEADS}"
 		"--optimizer=${OPT}"
 		"--pipeline-model-parallel-size=${PP}"
-		"--rotary-position-embeddings-theta=${ROPE_THETA:-5000000}"
+		"--rotary-position-embeddings-theta=${ROPE_THETA:-50000}"
 		"--save=${SAVE:-${CKPT_DIR}}"
 		"--seq-length=${SEQ}"
 		"--split=${TRAIN_SPLIT:-990},${VAL_SPLIT:-10},${TEST_SPLIT:-0}"
@@ -361,7 +361,7 @@ setupLauncher() {
 		make_ds_hostfile || exit
 		export LAUNCHER="deepspeed --hostfile $hfds --launcher MPICH ${EXEC}"
 	else
-		LAUNCHER="ezpz-launch ${EXEC}"
+    LAUNCHER="ezpz-launch $(which python3) ${EXEC}"
 		# source <(curl -L https://bit.ly/ezpz-utils) && ezpz_setup_job
 		# echo "ezpz_launch: $(which ezpz_launch)"
 		# export -f ezpz_launch
